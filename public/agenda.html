@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Agenda & Calendário - COB Advogados</title>
+  <link rel="stylesheet" href="/css/style.css">
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="/js/theme-helper.js"></script>
+  <script src="/js/logo-helper.js"></script>
+  <script src="/js/whatsapp-helper.js"></script>
+  <script src="/js/auth.js"></script>
+</head>
+<body>
+
+  <nav class="navbar">
+    <div id="cobBrandHeader"></div>
+    <div class="nav-links">
+      <div id="themeToggleContainer"></div>
+      <a href="/" class="nav-btn">Início</a>
+      <a href="/agenda.html" class="nav-btn active">Agenda & Calendário</a>
+      <a href="/recepcao.html" class="nav-btn">Recepção</a>
+      <a href="/advogado.html" class="nav-btn">Advogado</a>
+      <a href="/admin.html" class="nav-btn">Administração</a>
+    </div>
+  </nav>
+
+  <div class="container">
+    <div class="page-header">
+      <div class="page-title">
+        <h1>Agenda em Calendário por Advogado</h1>
+        <p>Visualização mensal da agenda de compromissos de toda a banca jurídica do escritório.</p>
+      </div>
+      <div>
+        <button class="btn btn-secondary" onclick="exportCalendarCSV()">Exportar Relatório CSV</button>
+      </div>
+    </div>
+
+    <!-- Controles do Calendário -->
+    <div class="card" style="margin-bottom: 1.5rem;">
+      <div class="calendar-controls">
+        <div style="display: flex; align-items: center; gap: 1rem; flex-wrap: wrap;">
+          <label style="font-weight: 700; font-size: 0.9rem; color: var(--text-muted);">Filtrar por Advogado:</label>
+          <select id="calendarLawyerSelect" class="form-control" style="width: 280px;" onchange="renderCalendar()">
+            <option value="todos">Todos os Advogados</option>
+          </select>
+        </div>
+
+        <div style="display: flex; align-items: center; gap: 0.75rem;">
+          <button class="btn btn-secondary btn-sm" onclick="changeMonth(-1)">◀ Anterior</button>
+          <h2 id="calendarMonthYearTitle" style="font-size: 1.25rem; font-weight: 700; color: var(--cob-silver-bright); min-width: 180px; text-align: center;"></h2>
+          <button class="btn btn-secondary btn-sm" onclick="changeMonth(1)">Próximo ▶</button>
+          <button class="btn btn-primary btn-sm" onclick="goToToday()">Hoje</button>
+        </div>
+      </div>
+
+      <!-- Grade do Calendário -->
+      <div class="calendar-grid">
+        <div class="calendar-header-day">Dom</div>
+        <div class="calendar-header-day">Seg</div>
+        <div class="calendar-header-day">Ter</div>
+        <div class="calendar-header-day">Qua</div>
+        <div class="calendar-header-day">Qui</div>
+        <div class="calendar-header-day">Sex</div>
+        <div class="calendar-header-day">Sáb</div>
+      </div>
+      <div id="calendarDaysGrid" class="calendar-grid" style="margin-top: 8px;">
+        <!-- Preenchido via JS -->
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal Detalhes do Dia Selecionado -->
+  <div id="dayDetailsModal" class="modal-overlay">
+    <div class="modal-box" style="max-width: 650px; text-align: left;">
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.25rem; border-bottom: 1px solid var(--border-color); padding-bottom: 0.75rem;">
+        <h2 id="modalDayTitle" style="font-size: 1.3rem; font-weight: 700; color: var(--text-main);"></h2>
+        <button class="btn btn-secondary btn-sm" onclick="closeDayModal()">Fechar</button>
+      </div>
+
+      <div class="table-responsive">
+        <table class="table">
+          <thead>
+            <tr>
+              <th>Horário</th>
+              <th>Cliente</th>
+              <th>Advogado / Sala</th>
+              <th>Status</th>
+              <th>Ação</th>
+            </tr>
+          </thead>
+          <tbody id="dayAppointmentsBody">
+            <!-- Preenchido via JS -->
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <script src="/js/agenda.js"></script>
+</body>
+</html>

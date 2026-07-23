@@ -1,0 +1,211 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Painel do Administrador - COB Advogados</title>
+  <link rel="stylesheet" href="/css/style.css">
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="/js/logo-helper.js"></script>
+  <script src="/js/auth.js"></script>
+</head>
+<body>
+
+  <nav class="navbar">
+    <div id="cobBrandHeader"></div>
+    <div class="nav-links">
+      <a href="/" class="nav-btn">Início</a>
+      <a href="/admin.html" class="nav-btn active">Administração</a>
+      <a href="/recepcao.html" class="nav-btn">Recepção</a>
+      <a href="/advogado.html" class="nav-btn">Advogado</a>
+      <a href="/painel.html" class="nav-btn">Painel TV</a>
+    </div>
+  </nav>
+
+  <div class="container">
+    <div class="page-header">
+      <div class="page-title">
+        <h1>Painel do Administrador</h1>
+        <p>Gerenciamento central de advogados, contas de acesso, edição de dados e configurações da fila.</p>
+      </div>
+      <div>
+        <button class="btn btn-danger btn-sm" onclick="clearDailyQueue()">Zerar Fila do Dia</button>
+      </div>
+    </div>
+
+    <div class="grid-2">
+      <!-- Formulário de Cadastro de Novo Advogado -->
+      <div class="card">
+        <div class="card-title">
+          <span>Cadastrar Novo Advogado</span>
+        </div>
+        <form id="addLawyerForm">
+          <div class="form-group">
+            <label for="lawyerName">Nome Completo do Advogado *</label>
+            <input type="text" id="lawyerName" class="form-control" placeholder="Ex: Dr. Fernando Albuquerque" required>
+          </div>
+
+          <div class="form-group">
+            <label for="lawyerRoom">Sala de Atendimento *</label>
+            <input type="text" id="lawyerRoom" class="form-control" placeholder="Ex: Sala 04" required>
+          </div>
+
+          <div class="form-group">
+            <label for="lawyerSpec">Especialidade / Área</label>
+            <input type="text" id="lawyerSpec" class="form-control" placeholder="Ex: Direito Tributário & Societário">
+          </div>
+
+          <div class="form-group">
+            <label for="lawyerUsername">Usuário de Login *</label>
+            <input type="text" id="lawyerUsername" class="form-control" placeholder="Ex: dr.fernando" required>
+          </div>
+
+          <div class="form-group">
+            <label for="lawyerPassword">Senha Inicial</label>
+            <input type="password" id="lawyerPassword" class="form-control" placeholder="Padrão: 123456">
+            <small style="color: var(--text-muted); font-size: 0.75rem;">* No primeiro login, o sistema exigirá a troca desta senha.</small>
+          </div>
+
+          <button type="submit" class="btn btn-primary btn-full">
+            Cadastrar Advogado e Conta
+          </button>
+        </form>
+      </div>
+
+      <!-- Tabela de Advogados Cadastrados -->
+      <div class="card">
+        <div class="card-title">
+          <span>Advogados Cadastrados</span>
+        </div>
+        <div class="table-responsive">
+          <table class="table">
+            <thead>
+              <tr>
+                <th>Advogado</th>
+                <th>Sala</th>
+                <th>Usuário</th>
+                <th>Ações</th>
+              </tr>
+            </thead>
+            <tbody id="lawyersTableBody">
+              <tr>
+                <td colspan="4" style="text-align: center; color: var(--text-muted); padding: 2rem;">
+                  Carregando advogados...
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- Seção de Gerenciamento e Edição de Contas de Usuários -->
+    <div class="card" style="margin-top: 1.5rem;">
+      <div class="card-title">
+        <span>Gestão Completa de Contas de Acesso e Perfil</span>
+      </div>
+      <div class="table-responsive">
+        <table class="table">
+          <thead>
+            <tr>
+              <th>Usuário</th>
+              <th>Nome Completo</th>
+              <th>Papel</th>
+              <th>Sala / Especialidade</th>
+              <th>Senha</th>
+              <th>Ações de Edição</th>
+            </tr>
+          </thead>
+          <tbody id="usersTableBody">
+            <tr>
+              <td colspan="6" style="text-align: center; color: var(--text-muted); padding: 2rem;">
+                Carregando usuários...
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- Modal Edição Completa de Usuário/Conta pelo Admin -->
+  <div id="editUserModal" class="modal-overlay">
+    <div class="modal-box" style="text-align: left; max-width: 500px;">
+      <h2 style="font-size: 1.3rem; font-weight: 700; color: var(--text-main); margin-bottom: 0.5rem;">Editar Conta de Usuário</h2>
+      <p style="color: var(--text-muted); font-size: 0.85rem; margin-bottom: 1.25rem;">
+        Altere o nome, login de usuário, sala de atendimento ou defina uma nova senha.
+      </p>
+
+      <form id="editUserForm">
+        <input type="hidden" id="editUserId">
+        
+        <div class="form-group">
+          <label for="editName">Nome Completo *</label>
+          <input type="text" id="editName" class="form-control" required>
+        </div>
+
+        <div class="form-group">
+          <label for="editUsername">Usuário de Login (`username`) *</label>
+          <input type="text" id="editUsername" class="form-control" required>
+        </div>
+
+        <div id="lawyerEditFields">
+          <div class="form-group">
+            <label for="editRoom">Sala de Atendimento</label>
+            <input type="text" id="editRoom" class="form-control" placeholder="Ex: Sala 01">
+          </div>
+
+          <div class="form-group">
+            <label for="editSpecialty">Especialidade / Área</label>
+            <input type="text" id="editSpecialty" class="form-control" placeholder="Ex: Direito Trabalhista">
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label for="editNewPassword">Alterar Senha (Opcional)</label>
+          <input type="password" id="editNewPassword" class="form-control" placeholder="Deixe em branco para não alterar">
+        </div>
+
+        <div style="display: flex; gap: 0.75rem; margin-top: 1.5rem;">
+          <button type="submit" class="btn btn-primary btn-full">Salvar Alterações</button>
+          <button type="button" onclick="closeEditModal()" class="btn btn-secondary">Cancelar</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Modal Redefinir Senha pelo Admin -->
+  <div id="resetPasswordModal" class="modal-overlay">
+    <div class="modal-box" style="text-align: left; max-width: 480px;">
+      <h2 style="font-size: 1.3rem; font-weight: 700; color: var(--text-main); margin-bottom: 0.5rem;">Redefinir Senha de Usuário</h2>
+      <p style="color: var(--text-muted); font-size: 0.85rem; margin-bottom: 1.25rem;">
+        Esta ação substituirá a senha do usuário e exigirá que ele defina uma nova senha pessoal no próximo login.
+      </p>
+
+      <form id="resetPasswordForm">
+        <input type="hidden" id="resetUserId">
+        
+        <div class="form-group">
+          <label>Usuário Alvo</label>
+          <input type="text" id="resetUserDisplay" class="form-control" disabled style="opacity: 0.7;">
+        </div>
+
+        <div class="form-group">
+          <label for="adminNewPassword">Nova Senha Temporária *</label>
+          <input type="text" id="adminNewPassword" class="form-control" value="123456" required minlength="6">
+        </div>
+
+        <div style="display: flex; gap: 0.75rem; margin-top: 1.5rem;">
+          <button type="submit" class="btn btn-primary btn-full">Salvar Redefinição</button>
+          <button type="button" onclick="closeResetModal()" class="btn btn-secondary">Cancelar</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <div id="toastContainer" class="toast-container"></div>
+
+  <script src="/js/admin.js"></script>
+</body>
+</html>

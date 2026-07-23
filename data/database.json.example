@@ -1,0 +1,71 @@
+{
+  "lawyers": [
+    {
+      "id": "1",
+      "name": "Dr. Carlos Eduardo",
+      "room": "Sala 01",
+      "specialty": "Direito Civil & Família",
+      "username": "dr.carlos"
+    },
+    {
+      "id": "2",
+      "name": "Dra. Ana Paula",
+      "room": "Sala 02",
+      "specialty": "Direito Trabalhista",
+      "username": "dra.ana"
+    },
+    {
+      "id": "3",
+      "name": "Dr. Roberto Silva",
+      "room": "Sala 03",
+      "specialty": "Direito Penal & Empresarial",
+      "username": "dr.roberto"
+    }
+  ],
+  "users": [
+    {
+      "id": "u_admin",
+      "username": "admin",
+      "passwordHash": "8d969eef6ecad3c29a3a629280e686cf0c3f5d5a86aff3ca12020c923adc6c92",
+      "name": "Administrador do Sistema",
+      "role": "admin",
+      "mustChangePassword": true
+    },
+    {
+      "id": "u_recepcao",
+      "username": "recepcao",
+      "passwordHash": "8d969eef6ecad3c29a3a629280e686cf0c3f5d5a86aff3ca12020c923adc6c92",
+      "name": "Recepcionista",
+      "role": "recepcao",
+      "mustChangePassword": true
+    },
+    {
+      "id": "u_carlos",
+      "username": "dr.carlos",
+      "passwordHash": "8d969eef6ecad3c29a3a629280e686cf0c3f5d5a86aff3ca12020c923adc6c92",
+      "name": "Dr. Carlos Eduardo",
+      "role": "advogado",
+      "lawyerId": "1",
+      "mustChangePassword": true
+    },
+    {
+      "id": "u_ana",
+      "username": "dra.ana",
+      "passwordHash": "8d969eef6ecad3c29a3a629280e686cf0c3f5d5a86aff3ca12020c923adc6c92",
+      "name": "Dra. Ana Paula",
+      "role": "advogado",
+      "lawyerId": "2",
+      "mustChangePassword": true
+    },
+    {
+      "id": "u_roberto",
+      "username": "dr.roberto",
+      "passwordHash": "8d969eef6ecad3c29a3a629280e686cf0c3f5d5a86aff3ca12020c923adc6c92",
+      "name": "Dr. Roberto Silva",
+      "role": "advogado",
+      "lawyerId": "3",
+      "mustChangePassword": true
+    }
+  ],
+  "appointments": []
+}

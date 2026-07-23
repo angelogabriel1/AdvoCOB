@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Recepção - COB Advogados</title>
+  <link rel="stylesheet" href="/css/style.css">
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="/js/theme-helper.js"></script>
+  <script src="/js/logo-helper.js"></script>
+  <script src="/js/audio-helper.js"></script>
+  <script src="/js/whatsapp-helper.js"></script>
+  <script src="/js/auth.js"></script>
+</head>
+<body>
+
+  <nav class="navbar">
+    <div id="cobBrandHeader"></div>
+    <div class="nav-links">
+      <div id="themeToggleContainer"></div>
+      <a href="/" class="nav-btn">Início</a>
+      <a href="/recepcao.html" class="nav-btn active">Recepção</a>
+      <a href="/agenda.html" class="nav-btn">Agenda</a>
+      <a href="/advogado.html" class="nav-btn">Advogado</a>
+      <a href="/painel.html" class="nav-btn">Painel TV</a>
+    </div>
+  </nav>
+
+  <div class="container">
+    <div class="page-header">
+      <div class="page-title">
+        <h1>Posto da Recepcionista</h1>
+        <p>Cadastre agendamentos presenciais ou futuros, envie lembretes via WhatsApp e gerencie a fila.</p>
+      </div>
+      <div style="display: flex; gap: 0.5rem;">
+        <button class="btn btn-secondary btn-sm" onclick="exportQueueCSV()">Exportar CSV</button>
+        <button class="btn btn-danger btn-sm" onclick="clearDailyQueue()">Limpar Fila do Dia</button>
+      </div>
+    </div>
+
+    <div class="grid-2">
+      <!-- Formulário de Agendamento de Clientes -->
+      <div class="card">
+        <div class="card-title">
+          <span>Novo Agendamento de Cliente</span>
+        </div>
+        <form id="appointmentForm">
+          <div class="form-group">
+            <label for="clientName">Nome do Cliente *</label>
+            <input type="text" id="clientName" class="form-control" placeholder="Ex: João Carlos da Silva" required>
+          </div>
+
+          <div class="form-group">
+            <label for="clientPhone">Telefone / Contato (WhatsApp)</label>
+            <input type="text" id="clientPhone" class="form-control" placeholder="Ex: (11) 99999-8888">
+          </div>
+
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem;">
+            <div class="form-group">
+              <label for="scheduledDate">Data do Agendamento *</label>
+              <input type="date" id="scheduledDate" class="form-control" required>
+            </div>
+
+            <div class="form-group">
+              <label for="scheduledTime">Horário *</label>
+              <input type="time" id="scheduledTime" class="form-control" required>
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label for="lawyerSelect">Advogado Responsável *</label>
+            <select id="lawyerSelect" class="form-control" required>
+              <option value="">Carregando advogados...</option>
+            </select>
+          </div>
+
+          <div class="form-group">
+            <label for="notes">Observações / Assunto</label>
+            <textarea id="notes" class="form-control" rows="2" placeholder="Ex: Consulta trabalhista, entrega de documentos..."></textarea>
+          </div>
+
+          <button type="submit" class="btn btn-primary btn-full">
+            Agendar Cliente
+          </button>
+        </form>
+      </div>
+
+      <!-- Fila de Atendimentos do Dia / Futuros -->
+      <div class="card">
+        <div class="card-title" style="flex-wrap: wrap; gap: 0.75rem;">
+          <span>Fila e Agendamentos</span>
+          <div style="display: flex; gap: 0.35rem; flex-wrap: wrap;" id="dateFilterButtons">
+            <button class="btn btn-secondary btn-sm active" onclick="setDateFilter('hoje')">Hoje</button>
+            <button class="btn btn-secondary btn-sm" onclick="setDateFilter('futuros')">Futuros</button>
+            <button class="btn btn-secondary btn-sm" onclick="setDateFilter('todos')">Todas as Datas</button>
+          </div>
+        </div>
+
+        <div style="display: flex; gap: 0.35rem; margin-bottom: 1rem; border-bottom: 1px solid var(--border-color); padding-bottom: 0.75rem;" id="statusFilterButtons">
+          <button class="btn btn-secondary btn-sm active" onclick="setStatusFilter('todos')">Todos os Status</button>
+          <button class="btn btn-secondary btn-sm" onclick="setStatusFilter('aguardando')">Aguardando</button>
+          <button class="btn btn-secondary btn-sm" onclick="setStatusFilter('em_atendimento')">Em Atendimento</button>
+          <button class="btn btn-secondary btn-sm" onclick="setStatusFilter('concluido')">Concluídos</button>
+        </div>
+
+        <div class="table-responsive">
+          <table class="table">
+            <thead>
+              <tr>
+                <th>Data & Hora</th>
+                <th>Cliente</th>
+                <th>Advogado / Sala</th>
+                <th>Status</th>
+                <th>Ações</th>
+              </tr>
+            </thead>
+            <tbody id="queueTableBody">
+              <tr>
+                <td colspan="5" style="text-align: center; color: var(--text-muted); padding: 2rem;">
+                  Nenhum cliente agendado na fila.
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Container de Notificações Toast -->
+  <div id="toastContainer" class="toast-container"></div>
+
+  <!-- Modal Alerta de Finalização de Atendimento do Advogado -->
+  <div id="finishAlertModal" class="modal-overlay">
+    <div class="modal-box">
+      <h2 style="font-size: 1.5rem; font-weight: 700; margin-bottom: 0.5rem; color: var(--cob-wine);">Atendimento Concluído</h2>
+      <p id="finishAlertMessage" style="font-size: 1.05rem; color: var(--text-main); margin-bottom: 1.5rem; line-height: 1.5;"></p>
+      
+      <div style="display: flex; flex-direction: column; gap: 0.75rem;">
+        <button id="callNextBtn" class="btn btn-success btn-full" style="font-size: 1rem; padding: 0.85rem;">
+          Chamar Próximo Cliente Deste Advogado
+        </button>
+        <button onclick="closeFinishModal()" class="btn btn-secondary btn-full">
+          Fechar Aviso
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <script src="/js/recepcao.js"></script>
+</body>
+</html>

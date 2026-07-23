@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>COB Advogados - Sistema de Gestão de Atendimento</title>
+  <link rel="stylesheet" href="/css/style.css">
+  <script src="/js/theme-helper.js"></script>
+  <script src="/js/logo-helper.js"></script>
+  <script src="/js/auth.js"></script>
+  <style>
+    .hero-section {
+      text-align: center;
+      margin: 3rem 0 4rem;
+    }
+    .hero-title {
+      font-size: 2.8rem;
+      font-weight: 800;
+      color: var(--text-main);
+      margin-bottom: 0.75rem;
+    }
+    .hero-subtitle {
+      font-size: 1.15rem;
+      color: var(--text-muted);
+      max-width: 650px;
+      margin: 0 auto;
+    }
+    .role-card {
+      background: var(--bg-card);
+      border: 1px solid var(--border-color);
+      border-radius: var(--radius-lg);
+      padding: 2.5rem 2rem;
+      text-align: center;
+      transition: all 0.3s ease;
+      cursor: pointer;
+      text-decoration: none;
+      color: inherit;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: space-between;
+      height: 100%;
+    }
+    .role-card:hover {
+      border-color: var(--cob-wine);
+      transform: translateY(-6px);
+      box-shadow: var(--shadow-lg);
+    }
+    .role-icon {
+      font-size: 3.5rem;
+      margin-bottom: 1.25rem;
+      width: 90px;
+      height: 90px;
+      border-radius: 50%;
+      background: rgba(139, 38, 53, 0.12);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border: 1px solid var(--border-brand);
+      color: var(--cob-wine);
+    }
+    .lan-info-card {
+      background: var(--bg-card);
+      border: 1px dashed var(--cob-wine);
+      border-radius: var(--radius-md);
+      padding: 1.5rem;
+      margin-top: 3rem;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 1rem;
+    }
+  </style>
+</head>
+<body>
+
+  <nav class="navbar">
+    <div id="cobBrandHeader"></div>
+    <div class="nav-links">
+      <div id="themeToggleContainer"></div>
+      <a href="/agenda.html" class="nav-btn">Agenda</a>
+      <a href="/recepcao.html" class="nav-btn">Recepção</a>
+      <a href="/advogado.html" class="nav-btn">Advogado</a>
+      <a href="/admin.html" class="nav-btn">Administração</a>
+      <a href="/painel.html" class="nav-btn">Painel TV</a>
+    </div>
+  </nav>
+
+  <div class="container">
+    <div class="hero-section">
+      <div style="display: flex; justify-content: center; margin-bottom: 1.5rem;">
+        <div id="heroLogoContainer"></div>
+      </div>
+      <h1 class="hero-title">Sistema de Atendimento e Fila de Clientes</h1>
+      <p class="hero-subtitle">Plataforma em tempo real para gestão da banca jurídica em Rede Local.</p>
+    </div>
+
+    <div class="grid-3">
+      <a href="/agenda.html" class="role-card">
+        <div>
+          <div class="role-icon">📅</div>
+          <h2 style="font-size: 1.5rem; font-weight: 700; margin-bottom: 0.75rem;">Agenda em Calendário</h2>
+          <p style="color: var(--text-muted); font-size: 0.95rem; margin-bottom: 1.5rem;">
+            Navegue no calendário mensal interativo por advogado, consulte agendamentos e envie lembretes via WhatsApp.
+          </p>
+        </div>
+        <button class="btn btn-primary btn-full">Abrir Agenda</button>
+      </a>
+
+      <a href="/recepcao.html" class="role-card">
+        <div>
+          <div class="role-icon">🏢</div>
+          <h2 style="font-size: 1.5rem; font-weight: 700; margin-bottom: 0.75rem;">Posto da Recepcionista</h2>
+          <p style="color: var(--text-muted); font-size: 0.95rem; margin-bottom: 1.5rem;">
+            Cadastre agendamentos de hoje ou datas futuras, previna duplicações de horários e gerencie a fila.
+          </p>
+        </div>
+        <button class="btn btn-primary btn-full">Acessar Recepção</button>
+      </a>
+
+      <a href="/advogado.html" class="role-card">
+        <div>
+          <div class="role-icon">⚖️</div>
+          <h2 style="font-size: 1.5rem; font-weight: 700; margin-bottom: 0.75rem;">Painel do Advogado</h2>
+          <p style="color: var(--text-muted); font-size: 0.95rem; margin-bottom: 1.5rem;">
+            Receba notificações na tela quando seu cliente for chamado e controle o tempo das consultas ativas.
+          </p>
+        </div>
+        <button class="btn btn-primary btn-full">Painel Advogado</button>
+      </a>
+    </div>
+
+    <div class="lan-info-card">
+      <div>
+        <h4 style="font-weight: 700; color: var(--cob-silver-bright); margin-bottom: 0.25rem;">🌐 Operação em Rede Local (LAN)</h4>
+        <p style="color: var(--text-muted); font-size: 0.9rem;">
+          Este sistema opera na rede interna do escritório COB Advogados. Acesse de qualquer computador ou tablet na mesma rede Wi-Fi/cabo.
+        </p>
+      </div>
+      <div style="font-family: monospace; font-size: 0.95rem; background: var(--bg-secondary); padding: 0.6rem 1rem; border-radius: var(--radius-sm); border: 1px solid var(--border-color);">
+        Conexão via WebSockets ⚡
+      </div>
+    </div>
+  </div>
+
+  <script>
+    document.addEventListener('DOMContentLoaded', () => {
+      renderCOBBrandHeader('cobBrandHeader');
+      document.getElementById('heroLogoContainer').innerHTML = getCOBLogoSVG(95);
+    });
+  </script>
+</body>
+</html>

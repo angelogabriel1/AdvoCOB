@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Login - COB Advogados</title>
+  <link rel="stylesheet" href="/css/style.css">
+  <script src="/js/logo-helper.js"></script>
+</head>
+<body class="login-container">
+
+  <div class="login-card">
+    <div style="display: flex; flex-direction: column; align-items: center; margin-bottom: 2rem;">
+      <div id="loginLogoContainer" style="margin-bottom: 1rem;"></div>
+    </div>
+
+    <h2 style="font-size: 1.2rem; font-weight: 700; color: var(--cob-silver-bright); margin-bottom: 1.5rem;">Acesso ao Sistema de Atendimento</h2>
+
+    <div id="loginAlert" style="display: none; padding: 0.75rem; border-radius: var(--radius-sm); font-size: 0.85rem; margin-bottom: 1rem; text-align: left;"></div>
+
+    <form id="loginForm">
+      <div class="form-group" style="text-align: left;">
+        <label for="username">Usuário</label>
+        <input type="text" id="username" class="form-control" placeholder="Ex: admin, recepcao ou dr.carlos" required autofocus>
+      </div>
+
+      <div class="form-group" style="text-align: left;">
+        <label for="password">Senha</label>
+        <input type="password" id="password" class="form-control" placeholder="Digite sua senha" required>
+      </div>
+
+      <button type="submit" class="btn btn-primary btn-full" style="padding: 0.85rem; font-size: 1rem; margin-top: 0.5rem;">
+        Entrar no Sistema
+      </button>
+    </form>
+
+    <div style="margin-top: 2rem; padding-top: 1.25rem; border-top: 1px solid var(--border-color); text-align: left; font-size: 0.8rem; color: var(--text-muted);">
+      <strong style="color: var(--cob-silver-bright); display: block; margin-bottom: 0.4rem;">Contas Padrão do Sistema (Senha Inicial: 123456):</strong>
+      <ul style="padding-left: 1.2rem; display: flex; flex-direction: column; gap: 0.2rem;">
+        <li>Administrador: <code style="color: var(--accent-gold);">admin</code></li>
+        <li>Recepcionista: <code style="color: var(--accent-gold);">recepcao</code></li>
+        <li>Advogados: <code style="color: var(--accent-gold);">dr.carlos</code>, <code style="color: var(--accent-gold);">dra.ana</code>, <code style="color: var(--accent-gold);">dr.roberto</code></li>
+      </ul>
+      <p style="margin-top: 0.5rem; font-style: italic; color: #94a3b8;">* No primeiro acesso, você será solicitado a cadastrar sua nova senha pessoal.</p>
+    </div>
+  </div>
+
+  <!-- Modal Obrigatorio de Alteração de Senha no 1º Acesso -->
+  <div id="changePasswordModal" class="modal-overlay">
+    <div class="modal-box" style="border-color: var(--cob-wine); text-align: left;">
+      <div style="text-align: center;">
+        <h2 style="font-size: 1.5rem; font-weight: 800; color: var(--cob-wine); margin-bottom: 0.5rem;">PRIMEIRO ACESSO DETECTADO</h2>
+        <p style="color: var(--text-muted); font-size: 0.9rem; margin-bottom: 1.5rem;">
+          Por razões de segurança, cadastre sua nova senha pessoal antes de continuar.
+        </p>
+      </div>
+
+      <div id="modalAlert" style="display: none; padding: 0.75rem; border-radius: var(--radius-sm); font-size: 0.85rem; margin-bottom: 1rem;"></div>
+
+      <form id="changePasswordForm">
+        <input type="hidden" id="modalUsername">
+        <input type="hidden" id="modalCurrentPassword">
+
+        <div class="form-group">
+          <label>Usuário</label>
+          <input type="text" id="modalUserDisplay" class="form-control" disabled style="opacity: 0.7;">
+        </div>
+
+        <div class="form-group">
+          <label for="newPassword">Nova Senha Pessoal (mínimo 6 caracteres) *</label>
+          <input type="password" id="newPassword" class="form-control" placeholder="Digite sua nova senha" required minlength="6">
+        </div>
+
+        <div class="form-group">
+          <label for="confirmPassword">Confirme a Nova Senha *</label>
+          <input type="password" id="confirmPassword" class="form-control" placeholder="Repita a nova senha" required minlength="6">
+        </div>
+
+        <button type="submit" class="btn btn-primary btn-full" style="padding: 0.85rem; font-size: 1rem; margin-top: 1rem;">
+          Salvar Nova Senha e Entrar
+        </button>
+      </form>
+    </div>
+  </div>
+
+  <script src="/js/auth.js"></script>
+  <script src="/js/login.js"></script>
+</body>
+</html>

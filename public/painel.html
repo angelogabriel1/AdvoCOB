@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Painel da Sala de Espera - COB Advogados</title>
+  <link rel="stylesheet" href="/css/style.css">
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="/js/logo-helper.js"></script>
+  <script src="/js/audio-helper.js"></script>
+  <style>
+    body {
+      background: radial-gradient(circle at center, #1b2434 0%, #0b0e14 100%);
+      height: 100vh;
+      overflow: hidden;
+    }
+    .tv-container {
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      padding: 3rem 4rem;
+    }
+    .tv-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      border-bottom: 2px solid var(--border-color);
+      padding-bottom: 1.5rem;
+    }
+    .tv-clock {
+      font-family: monospace;
+      font-size: 2.2rem;
+      font-weight: 700;
+      color: var(--cob-silver-bright);
+    }
+    .tv-main-call {
+      background: linear-gradient(135deg, rgba(139, 38, 53, 0.2), rgba(24, 32, 46, 0.95));
+      border: 4px solid var(--cob-wine);
+      border-radius: var(--radius-lg);
+      padding: 3.5rem;
+      text-align: center;
+      box-shadow: 0 25px 60px rgba(0, 0, 0, 0.8), 0 0 40px rgba(139, 38, 53, 0.3);
+      position: relative;
+    }
+    .tv-call-title {
+      font-size: 1.4rem;
+      text-transform: uppercase;
+      letter-spacing: 3px;
+      color: #fca5a5;
+      margin-bottom: 1rem;
+      font-weight: 700;
+    }
+    .tv-client-name {
+      font-size: 4.8rem;
+      font-weight: 800;
+      color: #ffffff;
+      margin-bottom: 1rem;
+      line-height: 1.1;
+    }
+    .tv-lawyer-room {
+      font-size: 2.8rem;
+      font-weight: 700;
+      color: var(--cob-silver-bright);
+    }
+    .tv-footer {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-end;
+      gap: 2rem;
+    }
+    .recent-calls-title {
+      font-size: 1rem;
+      text-transform: uppercase;
+      color: var(--text-muted);
+      letter-spacing: 1px;
+      margin-bottom: 0.75rem;
+    }
+    .recent-calls-list {
+      display: flex;
+      gap: 1rem;
+    }
+    .recent-card {
+      background: rgba(24, 32, 46, 0.8);
+      border: 1px solid var(--border-color);
+      border-radius: var(--radius-md);
+      padding: 0.75rem 1.25rem;
+      min-width: 220px;
+    }
+    .audio-notice {
+      position: fixed;
+      top: 1rem;
+      right: 1rem;
+      background: var(--cob-wine);
+      color: #ffffff;
+      padding: 0.5rem 1rem;
+      border-radius: 20px;
+      font-weight: 700;
+      font-size: 0.85rem;
+      cursor: pointer;
+      z-index: 1000;
+      box-shadow: 0 4px 15px rgba(0,0,0,0.6);
+    }
+  </style>
+</head>
+<body>
+
+  <div id="audioNotice" class="audio-notice" onclick="enableAudio()">
+    🔊 Clique na tela para ativar o áudio da TV
+  </div>
+
+  <div class="tv-container">
+    <!-- Cabeçalho -->
+    <div class="tv-header">
+      <div id="tvBrandHeader"></div>
+      <div id="tvClock" class="tv-clock">00:00:00</div>
+    </div>
+
+    <!-- Chamada Principal -->
+    <div class="tv-main-call" id="mainCallBox">
+      <div class="tv-call-title" id="callTitleTag">📢 PRÓXIMO ATENDIMENTO</div>
+      <div class="tv-client-name" id="tvClientName">Aguardando Chamada...</div>
+      <div class="tv-lawyer-room" id="tvLawyerRoom">---</div>
+    </div>
+
+    <!-- Rodapé com Últimas Chamadas -->
+    <div class="tv-footer">
+      <div>
+        <div class="recent-calls-title">Últimas Chamadas Realizadas</div>
+        <div class="recent-calls-list" id="recentCallsContainer">
+          <div style="color: var(--text-muted); font-size: 0.9rem;">Nenhuma chamada recente.</div>
+        </div>
+      </div>
+
+      <div style="text-align: right; color: var(--text-muted); font-size: 0.9rem;">
+        <span style="display: inline-block; width: 10px; height: 10px; background: var(--accent-green); border-radius: 50%; margin-right: 0.4rem;"></span>
+        Painel Conectado em Tempo Real (Rede Local)
+      </div>
+    </div>
+  </div>
+
+  <script src="/js/painel.js"></script>
+  <script>
+    document.addEventListener('DOMContentLoaded', () => {
+      renderCOBBrandHeader('tvBrandHeader');
+    });
+  </script>
+</body>
+</html>
