@@ -25,6 +25,7 @@ const PASSWORD_ROUNDS = Number(process.env.PASSWORD_ROUNDS || 12);
 const ALLOWED_ORIGIN = process.env.ALLOWED_ORIGIN || '*';
 const PANEL_TOKEN = process.env.PANEL_TOKEN || '';
 const DATABASE_URL = process.env.DATABASE_URL || '';
+const ADMIN_RECOVERY_CODE = process.env.ADMIN_RECOVERY_CODE || '';
 
 const DATA_DIR = process.env.DATA_DIR
   ? path.resolve(process.env.DATA_DIR)
@@ -439,6 +440,22 @@ const authLimiter = rateLimit({
   message: { error: 'Muitas tentativas de login. Aguarde alguns minutos e tente novamente.' }
 });
 
+const recoveryLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 5,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Muitas tentativas de recuperacao. Aguarde alguns minutos e tente novamente.' }
+});
+
+function safeCompareSecret(value, expected) {
+  const valueBuffer = Buffer.from(String(value || ''));
+  const expectedBuffer = Buffer.from(String(expected || ''));
+
+  if (valueBuffer.length !== expectedBuffer.length) return false;
+  return crypto.timingSafeEqual(valueBuffer, expectedBuffer);
+}
+
 app.post('/api/auth/login', authLimiter, (req, res) => {
   const { username, password } = req.body;
   if (!username || !password) {
@@ -464,6 +481,51 @@ app.post('/api/auth/login', authLimiter, (req, res) => {
     success: true,
     mustChangePassword: false,
     session: getSessionForUser(user)
+  });
+});
+
+app.post('/api/auth/recover-admin-password', recoveryLimiter, async (req, res) => {
+  const { recoveryCode, temporaryPassword } = req.body;
+
+  if (!ADMIN_RECOVERY_CODE) {
+    return res.status(403).json({ error: 'Recuperacao de administrador nao configurada no servidor.' });
+  }
+
+  if (!recoveryCode || !temporaryPassword) {
+    return res.status(400).json({ error: 'Codigo de recuperacao e senha temporaria sao obrigatorios.' });
+  }
+
+  if (temporaryPassword.length < 8) {
+    return res.status(400).json({ error: 'A senha temporaria deve conter no minimo 8 caracteres.' });
+  }
+
+  if (!safeCompareSecret(recoveryCode, ADMIN_RECOVERY_CODE)) {
+    return res.status(401).json({ error: 'Codigo de recuperacao invalido.' });
+  }
+
+  const admin = db.users.find(item => item.role === 'admin' && normalizeUsername(item.username) === 'admin');
+  if (!admin) {
+    return res.status(404).json({ error: 'Usuario administrador nao encontrado.' });
+  }
+
+  admin.passwordHash = hashPassword(temporaryPassword);
+  admin.mustChangePassword = true;
+
+  try {
+    if (pgPool) {
+      await savePostgresData(db);
+    } else {
+      saveJsonData(db);
+    }
+  } catch (err) {
+    console.error('Erro ao salvar recuperacao do administrador:', err);
+    return res.status(500).json({ error: 'Erro ao salvar a nova senha temporaria.' });
+  }
+
+  res.json({
+    success: true,
+    username: admin.username,
+    message: 'Senha temporaria do administrador redefinida. Faca login e cadastre uma nova senha.'
   });
 });
 

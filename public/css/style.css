@@ -596,3 +596,41 @@ select.form-control option {
   box-shadow: var(--shadow-lg);
   text-align: center;
 }
+
+.login-logo-wrap {
+  width: 100%;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  margin-bottom: 2rem;
+  overflow: hidden;
+}
+
+#loginLogoContainer {
+  width: 100%;
+  display: flex;
+  justify-content: center;
+}
+
+.cob-logo-img-large {
+  display: block;
+  width: min(100%, 340px);
+  max-height: 250px;
+  height: auto;
+  object-fit: contain;
+}
+
+@media (max-width: 520px) {
+  .login-container {
+    padding: 1rem;
+  }
+
+  .login-card {
+    padding: 2rem 1.25rem;
+  }
+
+  .cob-logo-img-large {
+    width: min(100%, 280px);
+    max-height: 210px;
+  }
+}

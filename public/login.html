@@ -10,8 +10,8 @@
 <body class="login-container">
 
   <div class="login-card">
-    <div style="display: flex; flex-direction: column; align-items: center; margin-bottom: 2rem;">
-      <div id="loginLogoContainer" style="margin-bottom: 1rem;"></div>
+    <div class="login-logo-wrap">
+      <div id="loginLogoContainer"></div>
     </div>
 
     <h2 style="font-size: 1.2rem; font-weight: 700; color: var(--cob-silver-bright); margin-bottom: 1.5rem;">Acesso ao Sistema de Atendimento</h2>
@@ -34,6 +34,10 @@
       </button>
     </form>
 
+    <button type="button" id="openAdminRecovery" class="btn btn-secondary btn-full" style="padding: 0.7rem; font-size: 0.9rem; margin-top: 0.75rem;">
+      Recuperar senha do administrador
+    </button>
+
     <div style="margin-top: 2rem; padding-top: 1.25rem; border-top: 1px solid var(--border-color); text-align: left; font-size: 0.8rem; color: var(--text-muted);">
       <strong style="color: var(--cob-silver-bright); display: block; margin-bottom: 0.4rem;">Contas Padrão do Sistema (Senha Inicial: 123456):</strong>
       <ul style="padding-left: 1.2rem; display: flex; flex-direction: column; gap: 0.2rem;">
@@ -46,6 +50,39 @@
   </div>
 
   <!-- Modal Obrigatorio de Alteração de Senha no 1º Acesso -->
+  <div id="adminRecoveryModal" class="modal-overlay">
+    <div class="modal-box" style="border-color: var(--cob-wine); text-align: left;">
+      <div style="text-align: center;">
+        <h2 style="font-size: 1.35rem; font-weight: 800; color: var(--cob-wine); margin-bottom: 0.5rem;">RECUPERAR ADMINISTRADOR</h2>
+        <p style="color: var(--text-muted); font-size: 0.9rem; margin-bottom: 1.5rem;">
+          Use o codigo de recuperacao configurado no servidor para criar uma senha temporaria.
+        </p>
+      </div>
+
+      <div id="recoveryAlert" style="display: none; padding: 0.75rem; border-radius: var(--radius-sm); font-size: 0.85rem; margin-bottom: 1rem;"></div>
+
+      <form id="adminRecoveryForm">
+        <div class="form-group">
+          <label for="recoveryCode">Codigo de Recuperacao *</label>
+          <input type="password" id="recoveryCode" class="form-control" placeholder="Digite o codigo do Render" required>
+        </div>
+
+        <div class="form-group">
+          <label for="temporaryAdminPassword">Senha Temporaria do Admin *</label>
+          <input type="password" id="temporaryAdminPassword" class="form-control" placeholder="Minimo 8 caracteres" required minlength="8">
+        </div>
+
+        <button type="submit" class="btn btn-primary btn-full" style="padding: 0.85rem; font-size: 1rem; margin-top: 1rem;">
+          Redefinir Senha Temporaria
+        </button>
+
+        <button type="button" id="closeAdminRecovery" class="btn btn-secondary btn-full" style="padding: 0.75rem; font-size: 0.95rem; margin-top: 0.75rem;">
+          Cancelar
+        </button>
+      </form>
+    </div>
+  </div>
+
   <div id="changePasswordModal" class="modal-overlay">
     <div class="modal-box" style="border-color: var(--cob-wine); text-align: left;">
       <div style="text-align: center;">

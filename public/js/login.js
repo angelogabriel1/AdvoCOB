@@ -4,6 +4,8 @@ document.addEventListener('DOMContentLoaded', () => {
     logoBox.innerHTML = '<img src="/assets/logo.png" alt="COB Advogados" class="cob-logo-img-large">';
   }
 
+  setupAdminRecovery();
+
   const session = Auth.getSession();
   if (session) {
     redirectUser(session);
@@ -30,6 +32,79 @@ function redirectUser(session) {
   }
 }
 
+function setInlineAlert(alertBox, message, type = 'error') {
+  alertBox.style.background = type === 'success'
+    ? 'rgba(16, 185, 129, 0.15)'
+    : 'rgba(239, 68, 68, 0.15)';
+  alertBox.style.border = type === 'success'
+    ? '1px solid rgba(16, 185, 129, 0.4)'
+    : '1px solid rgba(239, 68, 68, 0.4)';
+  alertBox.style.color = type === 'success' ? '#86efac' : '#fca5a5';
+  alertBox.innerText = message;
+  alertBox.style.display = 'block';
+}
+
+function setupAdminRecovery() {
+  const openBtn = document.getElementById('openAdminRecovery');
+  const closeBtn = document.getElementById('closeAdminRecovery');
+  const modal = document.getElementById('adminRecoveryModal');
+  const form = document.getElementById('adminRecoveryForm');
+  const recoveryAlert = document.getElementById('recoveryAlert');
+
+  if (!openBtn || !closeBtn || !modal || !form || !recoveryAlert) return;
+
+  openBtn.addEventListener('click', () => {
+    recoveryAlert.style.display = 'none';
+    form.reset();
+    modal.classList.add('active');
+    document.getElementById('recoveryCode').focus();
+  });
+
+  closeBtn.addEventListener('click', () => {
+    modal.classList.remove('active');
+  });
+
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+
+    const recoveryCode = document.getElementById('recoveryCode').value.trim();
+    const temporaryPassword = document.getElementById('temporaryAdminPassword').value;
+
+    recoveryAlert.style.display = 'none';
+
+    if (temporaryPassword.length < 8) {
+      setInlineAlert(recoveryAlert, 'A senha temporaria deve conter no minimo 8 caracteres.');
+      return;
+    }
+
+    try {
+      const res = await fetch('/api/auth/recover-admin-password', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ recoveryCode, temporaryPassword })
+      });
+
+      const data = await res.json();
+
+      if (!res.ok) {
+        setInlineAlert(recoveryAlert, data.error || 'Erro ao recuperar senha do administrador.');
+        return;
+      }
+
+      setInlineAlert(
+        recoveryAlert,
+        'Senha temporaria redefinida. Entre com usuario admin e essa senha para cadastrar uma nova senha pessoal.',
+        'success'
+      );
+      document.getElementById('username').value = data.username || 'admin';
+      document.getElementById('password').value = temporaryPassword;
+    } catch (err) {
+      console.error(err);
+      setInlineAlert(recoveryAlert, 'Erro ao se comunicar com o servidor.');
+    }
+  });
+}
+
 document.getElementById('loginForm').addEventListener('submit', async (e) => {
   e.preventDefault();
   
@@ -50,11 +125,7 @@ document.getElementById('loginForm').addEventListener('submit', async (e) => {
 
     if (!res.ok) {
       alertBox.className = 'card';
-      alertBox.style.background = 'rgba(239, 68, 68, 0.15)';
-      alertBox.style.border = '1px solid rgba(239, 68, 68, 0.4)';
-      alertBox.style.color = '#fca5a5';
-      alertBox.innerText = data.error || 'Erro ao realizar login.';
-      alertBox.style.display = 'block';
+      setInlineAlert(alertBox, data.error || 'Erro ao realizar login.');
       return;
     }
 
