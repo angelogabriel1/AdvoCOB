@@ -177,6 +177,8 @@ function normalizeData(data, defaults = makeDefaultData()) {
   if (!Array.isArray(data.appointments)) data.appointments = [];
   if (!Array.isArray(data.appointmentHistory)) data.appointmentHistory = [];
 
+  if (data.lawyers.length === 0) data.lawyers = defaults.lawyers;
+
   defaults.users.forEach(defaultUser => {
     const exists = data.users.some(user => normalizeUsername(user.username) === normalizeUsername(defaultUser.username));
     if (!exists) data.users.push(defaultUser);
@@ -230,7 +232,9 @@ async function loadPostgresData() {
 
   const result = await pgPool.query('select value from app_state where key = $1', ['main']);
   if (result.rows.length > 0) {
-    return normalizeData(result.rows[0].value, defaults);
+    const normalizedData = normalizeData(result.rows[0].value, defaults);
+    await savePostgresData(normalizedData);
+    return normalizedData;
   }
 
   const localData = fs.existsSync(DB_FILE) ? loadJsonData() : defaults;

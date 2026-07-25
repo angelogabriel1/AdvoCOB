@@ -5,5 +5,13 @@ create table if not exists app_state (
 );
 
 insert into app_state (key, value)
-values ('main', '{"lawyers":[],"users":[],"appointments":[]}'::jsonb)
+values (
+  'main',
+  jsonb_build_object(
+    'lawyers', '[]'::jsonb,
+    'users', '[]'::jsonb,
+    'appointments', '[]'::jsonb,
+    'appointmentHistory', '[]'::jsonb
+  )
+)
 on conflict (key) do nothing;
