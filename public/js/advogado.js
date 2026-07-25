@@ -10,6 +10,11 @@ let timerInterval = null;
 document.addEventListener('DOMContentLoaded', () => {
   renderCOBBrandHeader('cobBrandHeader');
 
+  const finishForm = document.getElementById('finishConsultationForm');
+  if (finishForm) {
+    finishForm.addEventListener('submit', submitFinishConsultation);
+  }
+
   if (session && session.lawyerId) {
     Auth.authFetch('/api/lawyers')
       .then(res => res.json())
@@ -175,14 +180,67 @@ function renderActiveConsultationCard(activeAppt) {
 }
 
 function finishActiveConsultation(appointmentId) {
-  if (confirm('Deseja finalizar o atendimento deste cliente? A recepcionista será notificada na tela dela para chamar o próximo.')) {
-    audioService.playFinishChime();
+  const appointmentInput = document.getElementById('finishAppointmentId');
+  if (appointmentInput) appointmentInput.value = appointmentId;
 
-    socket.emit('finish_consultation', {
-      appointmentId,
-      finishedByRole: 'advogado'
-    });
-  }
+  ['requestReschedule', 'requestCopies', 'requestSignature', 'requestDocuments'].forEach(id => {
+    const input = document.getElementById(id);
+    if (input) input.checked = false;
+  });
+
+  const noteInput = document.getElementById('finishReceptionNote');
+  if (noteInput) noteInput.value = '';
+
+  document.getElementById('finishConsultationModal').classList.add('active');
+}
+
+function closeFinishConsultationModal() {
+  document.getElementById('finishConsultationModal').classList.remove('active');
+}
+
+function submitFinishConsultation(event) {
+  event.preventDefault();
+
+  const appointmentId = document.getElementById('finishAppointmentId').value;
+  if (!appointmentId) return;
+
+  const receptionRequests = {
+    reschedule: document.getElementById('requestReschedule').checked,
+    copies: document.getElementById('requestCopies').checked,
+    signature: document.getElementById('requestSignature').checked,
+    documents: document.getElementById('requestDocuments').checked,
+    note: document.getElementById('finishReceptionNote').value.trim()
+  };
+
+  audioService.playFinishChime();
+
+  socket.emit('finish_consultation', {
+    appointmentId,
+    finishedByRole: 'advogado',
+    receptionRequests
+  });
+
+  closeFinishConsultationModal();
+}
+
+function renderReceptionRequestsSummary(requests) {
+  if (!requests) return '';
+
+  const labels = [];
+  if (requests.reschedule) labels.push('Reagendamento');
+  if (requests.copies) labels.push('Xerox/copia');
+  if (requests.signature) labels.push('Assinatura');
+  if (requests.documents) labels.push('Conferencia de documentos');
+
+  const note = requests.note ? `<div style="font-size: 0.78rem; color: #94a3b8; margin-top: 0.25rem;">Recado: ${escapeHtml(requests.note)}</div>` : '';
+  if (labels.length === 0 && !note) return '';
+
+  return `
+    <div style="font-size: 0.8rem; color: var(--accent-gold); margin-top: 0.35rem;">
+      Solicitado a recepcao: ${labels.map(escapeHtml).join(', ') || 'observacao'}
+      ${note}
+    </div>
+  `;
 }
 
 function renderWaitingList(waitingAppts) {
@@ -272,6 +330,7 @@ function renderCompletedList(completedAppts) {
         <div>
           <strong style="color: var(--text-main); font-size: 0.95rem;">${escapeHtml(item.clientName)}</strong>
           <div style="font-size: 0.8rem; color: var(--text-muted);">Agendado: ${formatDateBR(item.scheduledDate)} às ${item.scheduledTime}</div>
+          ${renderReceptionRequestsSummary(item.receptionRequests)}
         </div>
         <div style="font-size: 0.85rem; color: var(--accent-green); font-weight: 600;">
           Concluído às ${finishedTime}

@@ -406,6 +406,26 @@ function canManageAppointment(session, appointment) {
   return session.role === 'advogado' && appointment.lawyerId === session.lawyerId;
 }
 
+function normalizeReceptionRequests(requests) {
+  const source = requests && typeof requests === 'object' ? requests : {};
+  const normalized = {
+    reschedule: Boolean(source.reschedule),
+    copies: Boolean(source.copies),
+    signature: Boolean(source.signature),
+    documents: Boolean(source.documents),
+    note: String(source.note || '').trim().slice(0, 600)
+  };
+
+  const hasRequest =
+    normalized.reschedule ||
+    normalized.copies ||
+    normalized.signature ||
+    normalized.documents ||
+    normalized.note;
+
+  return hasRequest ? normalized : null;
+}
+
 app.use(helmet({ contentSecurityPolicy: false }));
 app.use(cors(corsConfig));
 app.use(express.json({ limit: '1mb' }));
@@ -802,7 +822,7 @@ io.on('connection', socket => {
     const session = requireSocketRole(socket, ['admin', 'recepcao', 'advogado']);
     if (!session) return;
 
-    const { appointmentId, finishedByRole } = data || {};
+    const { appointmentId, finishedByRole, receptionRequests } = data || {};
     const appointment = db.appointments.find(item => item.id === appointmentId);
     if (!canManageAppointment(session, appointment)) {
       return socket.emit('auth_error', 'Voce nao pode finalizar este atendimento.');
@@ -810,6 +830,7 @@ io.on('connection', socket => {
 
     appointment.status = 'concluido';
     appointment.finishedAt = new Date().toISOString();
+    appointment.receptionRequests = normalizeReceptionRequests(receptionRequests);
     saveData(db);
 
     emitQueueUpdated();
@@ -820,6 +841,7 @@ io.on('connection', socket => {
       clientName: appointment.clientName,
       finishedByRole: finishedByRole || session.role,
       finishedAt: appointment.finishedAt,
+      receptionRequests: appointment.receptionRequests,
       message: `O ${appointment.lawyerName} finalizou o atendimento de ${appointment.clientName}. Chame o proximo cliente para a ${appointment.lawyerRoom}!`
     });
   });

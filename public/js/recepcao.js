@@ -57,7 +57,8 @@ socket.on('lawyer_finished_notification', (data) => {
   showToast(`${data.lawyerName} finalizou atendimento de ${data.clientName}`, 'success');
 
   const alertMsg = `O(a) <strong>${data.lawyerName}</strong> finalizou a consulta de <strong>${data.clientName}</strong>.<br><br>Deseja chamar o próximo cliente da fila para este advogado?`;
-  document.getElementById('finishAlertMessage').innerHTML = alertMsg;
+  const requestsHtml = renderReceptionRequestsAlert(data.receptionRequests);
+  document.getElementById('finishAlertMessage').innerHTML = alertMsg.replace('<br><br>', `${requestsHtml}<br><br>`);
 
   const callNextBtn = document.getElementById('callNextBtn');
   callNextBtn.onclick = () => {
@@ -67,6 +68,31 @@ socket.on('lawyer_finished_notification', (data) => {
 
   document.getElementById('finishAlertModal').classList.add('active');
 });
+
+function renderReceptionRequestsAlert(requests) {
+  if (!requests) return '';
+
+  const items = [];
+  if (requests.reschedule) items.push('Solicitar reagendamento com a recepcao');
+  if (requests.copies) items.push('Xerox/copia de documentos');
+  if (requests.signature) items.push('Assinatura de documentos');
+  if (requests.documents) items.push('Recebimento/conferencia de documentos');
+
+  const note = requests.note ? `<div style="margin-top: 0.65rem;"><strong>Observacao:</strong> ${escapeHtml(requests.note)}</div>` : '';
+  if (items.length === 0 && !note) return '';
+
+  const list = items.length > 0
+    ? `<ul style="margin: 0.65rem 0 0 1.2rem; padding: 0;">${items.map(item => `<li>${escapeHtml(item)}</li>`).join('')}</ul>`
+    : '';
+
+  return `
+    <div style="margin-top: 1rem; padding: 0.9rem; border: 1px solid rgba(245, 158, 11, 0.45); border-radius: var(--radius-md); background: rgba(245, 158, 11, 0.1); text-align: left;">
+      <strong style="color: var(--accent-gold);">Solicitacoes do advogado para a recepcao</strong>
+      ${list}
+      ${note}
+    </div>
+  `;
+}
 
 document.getElementById('appointmentForm').addEventListener('submit', (e) => {
   e.preventDefault();
