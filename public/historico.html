@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Histórico - COB Advogados</title>
+  <link rel="stylesheet" href="/css/style.css">
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="/js/theme-helper.js"></script>
+  <script src="/js/logo-helper.js"></script>
+  <script src="/js/auth.js"></script>
+</head>
+<body>
+
+  <nav class="navbar">
+    <div id="cobBrandHeader"></div>
+    <div class="nav-links">
+      <div id="themeToggleContainer"></div>
+      <a href="/" class="nav-btn">Início</a>
+      <a href="/recepcao.html" class="nav-btn">Recepção</a>
+      <a href="/agenda.html" class="nav-btn">Agenda</a>
+      <a href="/historico.html" class="nav-btn active">Histórico</a>
+      <a href="/admin.html" class="nav-btn">Administração</a>
+    </div>
+  </nav>
+
+  <div class="container">
+    <div class="page-header">
+      <div class="page-title">
+        <h1>Histórico de Agendamentos</h1>
+        <p>Consulta persistente de agendamentos, remarcações, cancelamentos e movimentações da fila.</p>
+      </div>
+      <button class="btn btn-primary" onclick="exportHistoryCSV()">Exportar Histórico</button>
+    </div>
+
+    <div class="card">
+      <div class="card-title">
+        <span>Filtros</span>
+      </div>
+      <div class="history-filters">
+        <div class="form-group">
+          <label for="historySearch">Buscar</label>
+          <input type="text" id="historySearch" class="form-control" placeholder="Cliente, telefone, advogado ou observação">
+        </div>
+        <div class="form-group">
+          <label for="historyLawyerFilter">Advogado</label>
+          <select id="historyLawyerFilter" class="form-control">
+            <option value="todos">Todos</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label for="historyStatusFilter">Status</label>
+          <select id="historyStatusFilter" class="form-control">
+            <option value="todos">Todos</option>
+            <option value="aguardando">Aguardando</option>
+            <option value="em_atendimento">Em atendimento</option>
+            <option value="concluido">Concluído</option>
+            <option value="cancelado">Cancelado</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label for="historyFromDate">De</label>
+          <input type="date" id="historyFromDate" class="form-control">
+        </div>
+        <div class="form-group">
+          <label for="historyToDate">Até</label>
+          <input type="date" id="historyToDate" class="form-control">
+        </div>
+      </div>
+    </div>
+
+    <div class="history-summary-grid">
+      <div class="card history-stat">
+        <span>Agendamentos filtrados</span>
+        <strong id="historyAppointmentCount">0</strong>
+      </div>
+      <div class="card history-stat">
+        <span>Movimentações filtradas</span>
+        <strong id="historyEventCount">0</strong>
+      </div>
+      <div class="card history-stat">
+        <span>Concluídos</span>
+        <strong id="historyCompletedCount">0</strong>
+      </div>
+      <div class="card history-stat">
+        <span>Cancelados</span>
+        <strong id="historyCancelledCount">0</strong>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">
+        <span>Agendamentos</span>
+      </div>
+      <div class="table-responsive">
+        <table class="table">
+          <thead>
+            <tr>
+              <th>Data & Hora</th>
+              <th>Cliente</th>
+              <th>Advogado / Sala</th>
+              <th>Status</th>
+              <th>Última alteração</th>
+              <th>Ações</th>
+            </tr>
+          </thead>
+          <tbody id="historyAppointmentsBody">
+            <tr>
+              <td colspan="6" style="text-align: center; color: var(--text-muted); padding: 2rem;">Carregando histórico...</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">
+        <span>Movimentações</span>
+      </div>
+      <div id="historyEventsList" class="history-events-list">
+        <div style="text-align: center; color: var(--text-muted); padding: 1.5rem;">Carregando movimentações...</div>
+      </div>
+    </div>
+  </div>
+
+  <div id="editAppointmentModal" class="modal-overlay">
+    <div class="modal-box" style="text-align: left; max-width: 620px;">
+      <h2 style="font-size: 1.35rem; font-weight: 800; color: var(--text-main); margin-bottom: 0.5rem;">Editar Agendamento</h2>
+      <p style="color: var(--text-muted); font-size: 0.9rem; margin-bottom: 1.25rem;">Altere dados do cliente, advogado, data, horário ou observações.</p>
+
+      <form id="editAppointmentForm">
+        <input type="hidden" id="editAppointmentId">
+
+        <div class="form-group">
+          <label for="editClientName">Cliente *</label>
+          <input type="text" id="editClientName" class="form-control" required>
+        </div>
+
+        <div class="form-group">
+          <label for="editClientPhone">Telefone / WhatsApp</label>
+          <input type="text" id="editClientPhone" class="form-control">
+        </div>
+
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem;">
+          <div class="form-group">
+            <label for="editScheduledDate">Data *</label>
+            <input type="date" id="editScheduledDate" class="form-control" required>
+          </div>
+          <div class="form-group">
+            <label for="editScheduledTime">Horário *</label>
+            <input type="time" id="editScheduledTime" class="form-control" required>
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label for="editLawyerSelect">Advogado *</label>
+          <select id="editLawyerSelect" class="form-control" required></select>
+        </div>
+
+        <div class="form-group">
+          <label for="editNotes">Observações</label>
+          <textarea id="editNotes" class="form-control" rows="3"></textarea>
+        </div>
+
+        <div style="display: flex; gap: 0.75rem; margin-top: 1.5rem;">
+          <button type="submit" class="btn btn-primary btn-full">Salvar Alterações</button>
+          <button type="button" onclick="closeEditAppointmentModal()" class="btn btn-secondary">Cancelar</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <div id="toastContainer" class="toast-container"></div>
+
+  <script src="/js/historico.js"></script>
+</body>
+</html>

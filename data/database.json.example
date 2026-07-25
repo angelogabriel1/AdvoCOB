@@ -67,5 +67,6 @@
       "mustChangePassword": true
     }
   ],
-  "appointments": []
+  "appointments": [],
+  "appointmentHistory": []
 }

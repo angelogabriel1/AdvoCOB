@@ -160,7 +160,8 @@ function makeDefaultData() {
         mustChangePassword: true
       }
     ],
-    appointments: []
+    appointments: [],
+    appointmentHistory: []
   };
 }
 
@@ -174,6 +175,7 @@ function normalizeData(data, defaults = makeDefaultData()) {
   if (!Array.isArray(data.lawyers)) data.lawyers = defaults.lawyers;
   if (!Array.isArray(data.users)) data.users = defaults.users;
   if (!Array.isArray(data.appointments)) data.appointments = [];
+  if (!Array.isArray(data.appointmentHistory)) data.appointmentHistory = [];
 
   defaults.users.forEach(defaultUser => {
     const exists = data.users.some(user => normalizeUsername(user.username) === normalizeUsername(defaultUser.username));
@@ -289,6 +291,51 @@ function getBusinessDateString(date = new Date()) {
 
 function getUserById(userId) {
   return db.users.find(user => user.id === userId);
+}
+
+function getActorFromSession(session) {
+  if (!session) return { userId: null, username: 'sistema', name: 'Sistema', role: 'system' };
+
+  return {
+    userId: session.userId || null,
+    username: session.username || '',
+    name: session.name || session.username || 'Usuario',
+    role: session.role || ''
+  };
+}
+
+function getAppointmentSnapshot(appointment) {
+  if (!appointment) return null;
+
+  return {
+    id: appointment.id,
+    clientName: appointment.clientName || '',
+    clientPhone: appointment.clientPhone || '',
+    lawyerId: appointment.lawyerId || '',
+    lawyerName: appointment.lawyerName || '',
+    lawyerRoom: appointment.lawyerRoom || '',
+    scheduledDate: appointment.scheduledDate || '',
+    scheduledTime: appointment.scheduledTime || '',
+    status: appointment.status || '',
+    notes: appointment.notes || ''
+  };
+}
+
+function addHistoryEvent(type, appointment, session, details = {}) {
+  if (!Array.isArray(db.appointmentHistory)) db.appointmentHistory = [];
+
+  const event = {
+    id: `hist_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+    appointmentId: appointment && appointment.id ? appointment.id : null,
+    type,
+    createdAt: new Date().toISOString(),
+    actor: getActorFromSession(session),
+    appointment: getAppointmentSnapshot(appointment),
+    details
+  };
+
+  db.appointmentHistory.unshift(event);
+  return event;
 }
 
 function getSessionForUser(user) {
@@ -560,6 +607,13 @@ app.get('/api/auth/me', authenticate, (req, res) => {
   res.json({ session: req.session });
 });
 
+app.get('/api/history', requireRole('admin', 'recepcao'), (req, res) => {
+  res.json({
+    appointments: db.appointments,
+    history: db.appointmentHistory || []
+  });
+});
+
 app.get('/api/admin/users', requireRole('admin'), (req, res) => {
   const usersClean = db.users.map(user => {
     const lawyer = user.lawyerId ? db.lawyers.find(item => item.id === user.lawyerId) : null;
@@ -724,6 +778,77 @@ app.get('/api/appointments', requireRole('admin', 'recepcao', 'advogado'), (req,
   res.json(visibleAppointmentsForSession(req.session));
 });
 
+app.put('/api/appointments/:id', requireRole('admin', 'recepcao'), (req, res) => {
+  const { id } = req.params;
+  const { clientName, clientPhone, scheduledDate, scheduledTime, lawyerId, notes } = req.body;
+
+  const appointment = db.appointments.find(item => item.id === id);
+  if (!appointment) {
+    return res.status(404).json({ error: 'Agendamento nao encontrado.' });
+  }
+
+  const cleanClientName = String(clientName || '').trim();
+  const cleanScheduledDate = String(scheduledDate || '').trim();
+  const cleanScheduledTime = String(scheduledTime || '').trim();
+  const cleanLawyerId = String(lawyerId || '').trim();
+
+  if (!cleanClientName || !cleanScheduledDate || !cleanScheduledTime || !cleanLawyerId) {
+    return res.status(400).json({ error: 'Cliente, data, horario e advogado sao obrigatorios.' });
+  }
+
+  const lawyer = db.lawyers.find(item => item.id === cleanLawyerId);
+  if (!lawyer) {
+    return res.status(404).json({ error: 'Advogado nao encontrado.' });
+  }
+
+  const conflict = db.appointments.find(item =>
+    item.id !== appointment.id &&
+    item.lawyerId === cleanLawyerId &&
+    item.scheduledDate === cleanScheduledDate &&
+    item.scheduledTime === cleanScheduledTime &&
+    item.status !== 'cancelado'
+  );
+
+  if (conflict) {
+    const [year, month, day] = cleanScheduledDate.split('-');
+    const formattedDate = `${day}/${month}/${year}`;
+    return res.status(400).json({
+      error: `CONFLITO DE AGENDAMENTO: O(a) ${lawyer.name} ja possui ${conflict.clientName} no dia ${formattedDate} as ${cleanScheduledTime}.`
+    });
+  }
+
+  const before = getAppointmentSnapshot(appointment);
+
+  appointment.clientName = cleanClientName;
+  appointment.clientPhone = String(clientPhone || '').trim();
+  appointment.scheduledDate = cleanScheduledDate;
+  appointment.scheduledTime = cleanScheduledTime;
+  appointment.lawyerId = lawyer.id;
+  appointment.lawyerName = lawyer.name;
+  appointment.lawyerRoom = lawyer.room;
+  appointment.notes = String(notes || '').trim();
+  appointment.updatedAt = new Date().toISOString();
+  appointment.updatedBy = getActorFromSession(req.session);
+
+  const after = getAppointmentSnapshot(appointment);
+  const changedFields = Object.keys(after).filter(key => before[key] !== after[key]);
+
+  addHistoryEvent('appointment_updated', appointment, req.session, {
+    changedFields,
+    before,
+    after
+  });
+
+  saveData(db);
+  emitQueueUpdated();
+
+  res.json({
+    success: true,
+    message: 'Agendamento atualizado com sucesso.',
+    appointment
+  });
+});
+
 io.on('connection', socket => {
   socket.data.session = verifyToken(getSocketToken(socket));
 
@@ -816,6 +941,9 @@ io.on('connection', socket => {
     }
 
     db.appointments.unshift(newAppointment);
+    addHistoryEvent('appointment_created', newAppointment, session, {
+      message: 'Agendamento criado.'
+    });
     saveData(db);
 
     emitQueueUpdated();
@@ -836,6 +964,9 @@ io.on('connection', socket => {
     if (!appointment) return;
 
     appointment.calledAt = new Date().toISOString();
+    addHistoryEvent('client_called', appointment, session, {
+      calledAt: appointment.calledAt
+    });
     saveData(db);
 
     emitQueueUpdated();
@@ -874,6 +1005,9 @@ io.on('connection', socket => {
 
     appointment.status = 'em_atendimento';
     appointment.startedAt = new Date().toISOString();
+    addHistoryEvent('consultation_started', appointment, session, {
+      startedAt: appointment.startedAt
+    });
     saveData(db);
 
     emitQueueUpdated();
@@ -893,6 +1027,11 @@ io.on('connection', socket => {
     appointment.status = 'concluido';
     appointment.finishedAt = new Date().toISOString();
     appointment.receptionRequests = normalizeReceptionRequests(receptionRequests);
+    addHistoryEvent('consultation_finished', appointment, session, {
+      finishedByRole: finishedByRole || session.role,
+      finishedAt: appointment.finishedAt,
+      receptionRequests: appointment.receptionRequests
+    });
     saveData(db);
 
     emitQueueUpdated();
@@ -916,6 +1055,10 @@ io.on('connection', socket => {
     const appointment = db.appointments.find(item => item.id === appointmentId);
     if (appointment) {
       appointment.status = 'cancelado';
+      appointment.cancelledAt = new Date().toISOString();
+      addHistoryEvent('appointment_cancelled', appointment, session, {
+        cancelledAt: appointment.cancelledAt
+      });
       saveData(db);
       emitQueueUpdated();
     }
@@ -926,9 +1069,15 @@ io.on('connection', socket => {
     if (!session) return;
 
     const today = getBusinessDateString();
-    db.appointments = db.appointments.filter(appointment => {
+    db.appointments.forEach(appointment => {
       const appointmentDate = appointment.scheduledDate || getBusinessDateString(new Date(appointment.createdAt));
-      return appointmentDate !== today;
+      if (appointmentDate === today && appointment.status !== 'concluido' && appointment.status !== 'cancelado') {
+        appointment.status = 'cancelado';
+        appointment.cancelledAt = new Date().toISOString();
+        addHistoryEvent('daily_queue_cleared', appointment, session, {
+          clearedDate: today
+        });
+      }
     });
 
     saveData(db);
