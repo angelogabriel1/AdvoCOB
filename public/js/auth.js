@@ -63,7 +63,7 @@ const Auth = {
       return null;
     }
 
-    if (allowedRole && session.role !== allowedRole) {
+    if (allowedRole && session.role !== allowedRole && session.role !== 'admin') {
       if (session.role === 'admin') {
         window.location.href = '/admin.html';
       } else if (session.role === 'recepcao') {

@@ -15,6 +15,19 @@ document.addEventListener('DOMContentLoaded', () => {
     finishForm.addEventListener('submit', submitFinishConsultation);
   }
 
+  if (session && session.role === 'admin') {
+    Auth.authFetch('/api/lawyers')
+      .then(res => res.json())
+      .then(data => {
+        lawyers = data;
+        renderAdminLawyerSwitcher();
+        const savedLawyerId = localStorage.getItem('adminActiveLawyerId');
+        const selectedLawyer = lawyers.find(l => l.id === savedLawyerId) || lawyers[0];
+        if (selectedLawyer) setupLawyerProfile(selectedLawyer);
+      });
+    return;
+  }
+
   if (session && session.lawyerId) {
     Auth.authFetch('/api/lawyers')
       .then(res => res.json())
@@ -32,6 +45,11 @@ document.addEventListener('DOMContentLoaded', () => {
 
 function setupLawyerProfile(lawyer) {
   currentLawyer = lawyer;
+  if (session && session.role === 'admin') {
+    localStorage.setItem('adminActiveLawyerId', lawyer.id);
+    const select = document.getElementById('adminLawyerSelect');
+    if (select) select.value = lawyer.id;
+  }
 
   const titleElem = document.getElementById('lawyerTitle');
   const subTitleElem = document.getElementById('lawyerSubTitle');
@@ -40,6 +58,30 @@ function setupLawyerProfile(lawyer) {
 
   socket.emit('register_lawyer_room', lawyer.id);
   renderLawyerView();
+}
+
+function renderAdminLawyerSwitcher() {
+  const mainContent = document.getElementById('lawyerMainContent');
+  if (!mainContent || document.getElementById('adminLawyerSwitcher')) return;
+
+  mainContent.insertAdjacentHTML('afterbegin', `
+    <div id="adminLawyerSwitcher" class="card" style="margin-bottom: 1rem;">
+      <div class="card-title">
+        <span>Acesso do Administrador</span>
+      </div>
+      <div style="display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap;">
+        <label for="adminLawyerSelect" style="color: var(--text-muted); font-weight: 700;">Visualizar painel de:</label>
+        <select id="adminLawyerSelect" class="form-control" style="max-width: 360px;" onchange="selectAdminLawyerPanel(this.value)">
+          ${lawyers.map(lawyer => `<option value="${lawyer.id}">${escapeHtml(lawyer.name)} (${escapeHtml(lawyer.room)})</option>`).join('')}
+        </select>
+      </div>
+    </div>
+  `);
+}
+
+function selectAdminLawyerPanel(lawyerId) {
+  const lawyer = lawyers.find(item => item.id === lawyerId);
+  if (lawyer) setupLawyerProfile(lawyer);
 }
 
 socket.on('init_data', (data) => {
@@ -241,6 +283,19 @@ function renderReceptionRequestsSummary(requests) {
       ${note}
     </div>
   `;
+}
+
+function exportLawyerHistoryCSV() {
+  if (!currentLawyer) {
+    alert('Selecione um advogado antes de exportar.');
+    return;
+  }
+
+  const history = appointments
+    .filter(item => item.lawyerId === currentLawyer.id && item.status === 'concluido')
+    .sort((a, b) => new Date(b.finishedAt || b.createdAt) - new Date(a.finishedAt || a.createdAt));
+
+  exportAppointmentsCSV(history, `historico_consultas_${currentLawyer.name.replace(/\W+/g, '_').toLowerCase()}`);
 }
 
 function renderWaitingList(waitingAppts) {

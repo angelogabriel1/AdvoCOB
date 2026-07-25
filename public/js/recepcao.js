@@ -28,12 +28,14 @@ socket.on('init_data', (data) => {
   lawyers = data.lawyers || [];
   appointments = data.appointments || [];
   renderLawyerOptions();
+  renderExportLawyerOptions();
   renderQueue();
 });
 
 socket.on('lawyers_updated', (updatedLawyers) => {
   lawyers = updatedLawyers;
   renderLawyerOptions();
+  renderExportLawyerOptions();
 });
 
 socket.on('queue_updated', (updatedAppointments) => {
@@ -132,6 +134,16 @@ function renderLawyerOptions() {
 
   select.innerHTML = '<option value="">-- Selecione o Advogado --</option>' +
     lawyers.map(l => `<option value="${l.id}">${l.name} (${l.room}) - ${l.specialty}</option>`).join('');
+}
+
+function renderExportLawyerOptions() {
+  const select = document.getElementById('exportLawyerFilter');
+  if (!select) return;
+
+  const currentValue = select.value || 'todos';
+  select.innerHTML = '<option value="todos">Todos os Advogados</option>' +
+    lawyers.map(l => `<option value="${l.id}">${escapeHtml(l.name)} (${escapeHtml(l.room)})</option>`).join('');
+  select.value = lawyers.some(l => l.id === currentValue) ? currentValue : 'todos';
 }
 
 function renderQueue() {
@@ -301,7 +313,25 @@ function clearDailyQueue() {
 }
 
 function exportQueueCSV() {
-  exportAppointmentsCSV(appointments);
+  const lawyerFilter = document.getElementById('exportLawyerFilter')?.value || 'todos';
+  const statusFilter = document.getElementById('exportStatusFilter')?.value || 'concluido';
+
+  let list = appointments;
+  if (lawyerFilter !== 'todos') {
+    list = list.filter(item => item.lawyerId === lawyerFilter);
+  }
+
+  if (statusFilter !== 'todos') {
+    list = list.filter(item => item.status === statusFilter);
+  }
+
+  list = list.sort((a, b) => new Date(b.finishedAt || b.createdAt) - new Date(a.finishedAt || a.createdAt));
+
+  const lawyerLabel = lawyerFilter === 'todos'
+    ? 'todos_advogados'
+    : (lawyers.find(item => item.id === lawyerFilter)?.name || 'advogado').replace(/\W+/g, '_').toLowerCase();
+
+  exportAppointmentsCSV(list, `historico_recepcao_${lawyerLabel}_${statusFilter}`);
 }
 
 function formatDateBR(dateStr) {

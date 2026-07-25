@@ -33,7 +33,17 @@
         <h1>Posto da Recepcionista</h1>
         <p>Cadastre agendamentos presenciais ou futuros, envie lembretes via WhatsApp e gerencie a fila.</p>
       </div>
-      <div style="display: flex; gap: 0.5rem;">
+      <div style="display: flex; gap: 0.5rem; flex-wrap: wrap; justify-content: flex-end;">
+        <select id="exportLawyerFilter" class="form-control" style="width: 210px; padding: 0.45rem 0.65rem;">
+          <option value="todos">Todos os Advogados</option>
+        </select>
+        <select id="exportStatusFilter" class="form-control" style="width: 180px; padding: 0.45rem 0.65rem;">
+          <option value="concluido">Consultas Concluidas</option>
+          <option value="todos">Todos os Status</option>
+          <option value="aguardando">Aguardando</option>
+          <option value="em_atendimento">Em Atendimento</option>
+          <option value="cancelado">Cancelados</option>
+        </select>
         <button class="btn btn-secondary btn-sm" onclick="exportQueueCSV()">Exportar CSV</button>
         <button class="btn btn-danger btn-sm" onclick="clearDailyQueue()">Limpar Fila do Dia</button>
       </div>
