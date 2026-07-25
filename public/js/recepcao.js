@@ -5,6 +5,7 @@ let lawyers = [];
 let appointments = [];
 let activeDateFilter = 'hoje';
 let activeStatusFilter = 'todos';
+let lastFinishedAppointmentId = null;
 
 document.addEventListener('DOMContentLoaded', () => {
   renderCOBBrandHeader('cobBrandHeader');
@@ -55,6 +56,7 @@ socket.on('appointment_created_success', () => {
 socket.on('lawyer_finished_notification', (data) => {
   audioService.playNotificationChime();
   showToast(`${data.lawyerName} finalizou atendimento de ${data.clientName}`, 'success');
+  lastFinishedAppointmentId = data.appointmentId || null;
 
   const alertMsg = `O(a) <strong>${data.lawyerName}</strong> finalizou a consulta de <strong>${data.clientName}</strong>.<br><br>Deseja chamar o próximo cliente da fila para este advogado?`;
   const requestsHtml = renderReceptionRequestsAlert(data.receptionRequests);
@@ -191,6 +193,10 @@ function renderQueue() {
       `;
     }
 
+    if (item.status === 'concluido') {
+      actions += `<button class="btn btn-secondary btn-sm" onclick="openAppointmentDetails('${item.id}')">Detalhes</button>`;
+    }
+
     const formattedDate = formatDateBR(item.scheduledDate);
 
     return `
@@ -228,6 +234,16 @@ function finishConsultation(appointmentId) {
   if (confirm('Deseja finalizar este atendimento pela Recepção?')) {
     socket.emit('finish_consultation', { appointmentId, finishedByRole: 'recepcionista' });
   }
+}
+
+function openAppointmentDetails(appointmentId) {
+  const appointment = appointments.find(item => item.id === appointmentId);
+  AppointmentDetails.open(appointment);
+}
+
+function openLastFinishedAppointmentDetails() {
+  if (!lastFinishedAppointmentId) return;
+  openAppointmentDetails(lastFinishedAppointmentId);
 }
 
 function cancelAppointment(appointmentId) {

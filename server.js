@@ -836,6 +836,7 @@ io.on('connection', socket => {
     emitQueueUpdated();
 
     io.to('reception_room').emit('lawyer_finished_notification', {
+      appointmentId: appointment.id,
       lawyerId: appointment.lawyerId,
       lawyerName: appointment.lawyerName,
       clientName: appointment.clientName,

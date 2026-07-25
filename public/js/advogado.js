@@ -310,6 +310,11 @@ function startConsultation(appointmentId) {
   socket.emit('start_consultation', appointmentId);
 }
 
+function openAppointmentDetails(appointmentId) {
+  const appointment = appointments.find(item => item.id === appointmentId);
+  AppointmentDetails.open(appointment);
+}
+
 function renderCompletedList(completedAppts) {
   const container = document.getElementById('completedList');
   if (!container) return;
@@ -331,6 +336,7 @@ function renderCompletedList(completedAppts) {
           <strong style="color: var(--text-main); font-size: 0.95rem;">${escapeHtml(item.clientName)}</strong>
           <div style="font-size: 0.8rem; color: var(--text-muted);">Agendado: ${formatDateBR(item.scheduledDate)} às ${item.scheduledTime}</div>
           ${renderReceptionRequestsSummary(item.receptionRequests)}
+          <button class="btn btn-secondary btn-sm" style="margin-top: 0.6rem;" onclick="openAppointmentDetails('${item.id}')">Detalhes</button>
         </div>
         <div style="font-size: 0.85rem; color: var(--accent-green); font-weight: 600;">
           Concluído às ${finishedTime}

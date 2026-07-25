@@ -11,6 +11,7 @@
   <script src="/js/audio-helper.js"></script>
   <script src="/js/whatsapp-helper.js"></script>
   <script src="/js/auth.js"></script>
+  <script src="/js/appointment-details.js"></script>
 </head>
 <body>
 
@@ -139,6 +140,9 @@
       <div style="display: flex; flex-direction: column; gap: 0.75rem;">
         <button id="callNextBtn" class="btn btn-success btn-full" style="font-size: 1rem; padding: 0.85rem;">
           Chamar Próximo Cliente Deste Advogado
+        </button>
+        <button onclick="openLastFinishedAppointmentDetails()" class="btn btn-primary btn-full">
+          Ver Detalhes do Atendimento
         </button>
         <button onclick="closeFinishModal()" class="btn btn-secondary btn-full">
           Fechar Aviso
