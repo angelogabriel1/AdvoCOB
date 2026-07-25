@@ -96,4 +96,4 @@ O arquivo `data/database.json` está incluído no `.gitignore` para garantir que
 
 ## 📄 Licença
 
-Desenvolvido para **COB Advogados (Cavalcanti, Oliveira & Batista Advogados)**. Todos os direitos reservados.
+Desenvolvido por Angelo e Ivan para **COB Advogados (Cavalcanti, Oliveira & Batista Advogados)**. Todos os direitos reservados.
