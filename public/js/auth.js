@@ -10,6 +10,42 @@ const Auth = {
     }
   },
 
+  getToken() {
+    const session = this.getSession();
+    return session && session.token ? session.token : '';
+  },
+
+  getAuthHeaders(extraHeaders = {}) {
+    const token = this.getToken();
+    return {
+      ...extraHeaders,
+      ...(token ? { Authorization: `Bearer ${token}` } : {})
+    };
+  },
+
+  authFetch(url, options = {}) {
+    const headers = this.getAuthHeaders(options.headers || {});
+    return fetch(url, { ...options, headers });
+  },
+
+  createSocket() {
+    const socket = io({
+      auth: {
+        token: this.getToken()
+      }
+    });
+
+    socket.on('auth_error', (message) => {
+      const text = message || 'Sessao expirada. Faca login novamente.';
+      alert(text);
+      if (text.toLowerCase().includes('sessao')) {
+        this.clearSession();
+      }
+    });
+
+    return socket;
+  },
+
   setSession(sessionData) {
     localStorage.setItem('cob_adv_session', JSON.stringify(sessionData));
   },

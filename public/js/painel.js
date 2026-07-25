@@ -1,4 +1,17 @@
-const socket = io();
+const panelTokenFromUrl = new URLSearchParams(window.location.search).get('token');
+if (panelTokenFromUrl) {
+  localStorage.setItem('cob_panel_token', panelTokenFromUrl);
+}
+
+const socket = io({
+  auth: {
+    panelToken: panelTokenFromUrl || localStorage.getItem('cob_panel_token') || ''
+  }
+});
+
+socket.on('auth_error', (message) => {
+  alert(message || 'Painel nao autorizado.');
+});
 
 let recentCalls = [];
 

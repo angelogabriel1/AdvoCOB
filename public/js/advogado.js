@@ -1,6 +1,6 @@
 const session = Auth.requireAuth('advogado');
 
-const socket = io();
+const socket = Auth.createSocket();
 
 let currentLawyer = null;
 let lawyers = [];
@@ -11,7 +11,7 @@ document.addEventListener('DOMContentLoaded', () => {
   renderCOBBrandHeader('cobBrandHeader');
 
   if (session && session.lawyerId) {
-    fetch('/api/lawyers')
+    Auth.authFetch('/api/lawyers')
       .then(res => res.json())
       .then(data => {
         lawyers = data;

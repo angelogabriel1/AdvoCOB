@@ -1,5 +1,5 @@
 const session = Auth.requireAuth('admin');
-const socket = io();
+const socket = Auth.createSocket();
 
 let lawyers = [];
 let users = [];
@@ -18,7 +18,7 @@ socket.on('lawyers_updated', (updated) => {
 
 async function loadLawyers() {
   try {
-    const res = await fetch('/api/lawyers');
+    const res = await Auth.authFetch('/api/lawyers');
     lawyers = await res.json();
     renderLawyersTable();
   } catch (err) {
@@ -28,7 +28,7 @@ async function loadLawyers() {
 
 async function loadUsers() {
   try {
-    const res = await fetch('/api/admin/users');
+    const res = await Auth.authFetch('/api/admin/users');
     users = await res.json();
     renderUsersTable();
   } catch (err) {
@@ -123,7 +123,7 @@ document.getElementById('addLawyerForm').addEventListener('submit', async (e) =>
   const room = document.getElementById('lawyerRoom').value.trim();
   const specialty = document.getElementById('lawyerSpec').value.trim();
   const username = document.getElementById('lawyerUsername').value.trim();
-  const password = document.getElementById('lawyerPassword').value.trim() || '123456';
+  const password = document.getElementById('lawyerPassword').value.trim() || '12345678';
 
   if (!name || !room || !username) {
     alert('Preencha todos os campos obrigatórios.');
@@ -131,7 +131,7 @@ document.getElementById('addLawyerForm').addEventListener('submit', async (e) =>
   }
 
   try {
-    const res = await fetch('/api/lawyers', {
+    const res = await Auth.authFetch('/api/lawyers', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ name, room, specialty, username, password })
@@ -160,7 +160,7 @@ document.getElementById('addLawyerForm').addEventListener('submit', async (e) =>
 async function deleteLawyer(lawyerId) {
   if (confirm('Tem certeza que deseja excluir este advogado e remover sua conta de login?')) {
     try {
-      const res = await fetch(`/api/lawyers/${lawyerId}`, { method: 'DELETE' });
+      const res = await Auth.authFetch(`/api/lawyers/${lawyerId}`, { method: 'DELETE' });
       if (res.ok) {
         showToast('Advogado excluído com sucesso.', 'info');
         loadLawyers();
@@ -214,7 +214,7 @@ document.getElementById('editUserForm').addEventListener('submit', async (e) => 
   }
 
   try {
-    const res = await fetch(`/api/admin/users/${userId}`, {
+    const res = await Auth.authFetch(`/api/admin/users/${userId}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ name, username, room, specialty, password })
@@ -249,7 +249,7 @@ document.getElementById('editUserForm').addEventListener('submit', async (e) => 
 function openResetModal(userId, name, username) {
   document.getElementById('resetUserId').value = userId;
   document.getElementById('resetUserDisplay').value = `${name} (@${username})`;
-  document.getElementById('adminNewPassword').value = '123456';
+  document.getElementById('adminNewPassword').value = '12345678';
   document.getElementById('resetPasswordModal').classList.add('active');
 }
 
@@ -266,7 +266,7 @@ document.getElementById('resetPasswordForm').addEventListener('submit', async (e
   if (!userId || !newPassword) return;
 
   try {
-    const res = await fetch('/api/admin/reset-password', {
+    const res = await Auth.authFetch('/api/admin/reset-password', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ userId, newPassword })

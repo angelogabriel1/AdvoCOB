@@ -104,10 +104,10 @@ document.getElementById('changePasswordForm').addEventListener('submit', async (
     return;
   }
 
-  if (newPassword.length < 6) {
+  if (newPassword.length < 8) {
     modalAlert.style.background = 'rgba(239, 68, 68, 0.15)';
     modalAlert.style.color = '#fca5a5';
-    modalAlert.innerText = 'A senha deve conter no mínimo 6 caracteres.';
+    modalAlert.innerText = 'A senha deve conter no minimo 8 caracteres.';
     modalAlert.style.display = 'block';
     return;
   }

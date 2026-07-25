@@ -1,4 +1,5 @@
-const socket = io();
+const session = Auth.requireAuth();
+const socket = Auth.createSocket();
 
 let lawyers = [];
 let appointments = [];
@@ -18,8 +19,8 @@ socket.on('queue_updated', (updated) => {
 async function loadData() {
   try {
     const [resL, resA] = await Promise.all([
-      fetch('/api/lawyers'),
-      fetch('/api/appointments')
+      Auth.authFetch('/api/lawyers'),
+      Auth.authFetch('/api/appointments')
     ]);
     lawyers = await resL.json();
     appointments = await resA.json();

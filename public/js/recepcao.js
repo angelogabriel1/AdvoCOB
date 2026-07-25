@@ -1,5 +1,5 @@
 const session = Auth.requireAuth('recepcao');
-const socket = io();
+const socket = Auth.createSocket();
 
 let lawyers = [];
 let appointments = [];
