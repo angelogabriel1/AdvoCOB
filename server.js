@@ -12,6 +12,7 @@ const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
+const { Pool } = require('pg');
 
 const app = express();
 const server = http.createServer(app);
@@ -23,6 +24,7 @@ const BUSINESS_TIME_ZONE = process.env.BUSINESS_TIME_ZONE || 'America/Fortaleza'
 const PASSWORD_ROUNDS = Number(process.env.PASSWORD_ROUNDS || 12);
 const ALLOWED_ORIGIN = process.env.ALLOWED_ORIGIN || '*';
 const PANEL_TOKEN = process.env.PANEL_TOKEN || '';
+const DATABASE_URL = process.env.DATABASE_URL || '';
 
 const DATA_DIR = process.env.DATA_DIR
   ? path.resolve(process.env.DATA_DIR)
@@ -53,6 +55,12 @@ const corsConfig = {
 };
 
 const io = new Server(server, { cors: corsConfig });
+const pgPool = DATABASE_URL
+  ? new Pool({
+      connectionString: DATABASE_URL,
+      ssl: process.env.PGSSLMODE === 'disable' ? false : { rejectUnauthorized: false }
+    })
+  : null;
 
 if (!fs.existsSync(DATA_DIR)) {
   fs.mkdirSync(DATA_DIR, { recursive: true });
@@ -144,34 +152,39 @@ function normalizeUsername(username) {
   return String(username || '').trim().toLowerCase();
 }
 
-function loadData() {
+function normalizeData(data, defaults = makeDefaultData()) {
+  if (!data || typeof data !== 'object') data = {};
+
+  if (!Array.isArray(data.lawyers)) data.lawyers = defaults.lawyers;
+  if (!Array.isArray(data.users)) data.users = defaults.users;
+  if (!Array.isArray(data.appointments)) data.appointments = [];
+
+  defaults.users.forEach(defaultUser => {
+    const exists = data.users.some(user => normalizeUsername(user.username) === normalizeUsername(defaultUser.username));
+    if (!exists) data.users.push(defaultUser);
+  });
+
+  return data;
+}
+
+function loadJsonData() {
   const defaults = makeDefaultData();
 
   try {
     if (fs.existsSync(DB_FILE)) {
       const raw = fs.readFileSync(DB_FILE, 'utf8');
       const data = JSON.parse(raw);
-
-      if (!Array.isArray(data.lawyers)) data.lawyers = defaults.lawyers;
-      if (!Array.isArray(data.users)) data.users = defaults.users;
-      if (!Array.isArray(data.appointments)) data.appointments = [];
-
-      defaults.users.forEach(defaultUser => {
-        const exists = data.users.some(user => normalizeUsername(user.username) === normalizeUsername(defaultUser.username));
-        if (!exists) data.users.push(defaultUser);
-      });
-
-      return data;
+      return normalizeData(data, defaults);
     }
   } catch (err) {
     console.error('Erro ao ler banco de dados JSON:', err);
   }
 
-  saveData(defaults);
+  saveJsonData(defaults);
   return defaults;
 }
 
-function saveData(data) {
+function saveJsonData(data) {
   try {
     const tmpFile = `${DB_FILE}.tmp`;
     fs.writeFileSync(tmpFile, JSON.stringify(data, null, 2), 'utf8');
@@ -181,7 +194,70 @@ function saveData(data) {
   }
 }
 
-let db = loadData();
+async function ensurePostgresSchema() {
+  if (!pgPool) return;
+
+  await pgPool.query(`
+    create table if not exists app_state (
+      key text primary key,
+      value jsonb not null,
+      updated_at timestamptz not null default now()
+    )
+  `);
+}
+
+async function loadPostgresData() {
+  const defaults = makeDefaultData();
+  await ensurePostgresSchema();
+
+  const result = await pgPool.query('select value from app_state where key = $1', ['main']);
+  if (result.rows.length > 0) {
+    return normalizeData(result.rows[0].value, defaults);
+  }
+
+  const localData = fs.existsSync(DB_FILE) ? loadJsonData() : defaults;
+  await savePostgresData(localData);
+  return normalizeData(localData, defaults);
+}
+
+async function savePostgresData(data) {
+  if (!pgPool) return;
+
+  await ensurePostgresSchema();
+  await pgPool.query(
+    `
+      insert into app_state (key, value, updated_at)
+      values ($1, $2::jsonb, now())
+      on conflict (key)
+      do update set value = excluded.value, updated_at = now()
+    `,
+    ['main', JSON.stringify(data)]
+  );
+}
+
+async function loadData() {
+  if (!pgPool) return loadJsonData();
+
+  try {
+    return await loadPostgresData();
+  } catch (err) {
+    console.error('Erro ao conectar no PostgreSQL/Supabase:', err);
+    throw err;
+  }
+}
+
+function saveData(data) {
+  if (!pgPool) {
+    saveJsonData(data);
+    return;
+  }
+
+  savePostgresData(data).catch(err => {
+    console.error('Erro ao salvar dados no PostgreSQL/Supabase:', err);
+  });
+}
+
+let db = makeDefaultData();
 
 function getBusinessDateString(date = new Date()) {
   const parts = new Intl.DateTimeFormat('en-US', {
@@ -764,20 +840,30 @@ io.on('connection', socket => {
   });
 });
 
-server.listen(PORT, '0.0.0.0', () => {
-  console.log('\n======================================================');
-  console.log('COB ADVOGADOS - SISTEMA DE ATENDIMENTO PRONTO');
-  console.log('======================================================');
-  console.log(`Acesso local no servidor: http://localhost:${PORT}`);
+async function startServer() {
+  db = await loadData();
 
-  const interfaces = os.networkInterfaces();
-  console.log('\nEnderecos para acesso na rede local (LAN):');
-  Object.keys(interfaces).forEach(ifname => {
-    interfaces[ifname].forEach(iface => {
-      if (iface.family === 'IPv4' && !iface.internal) {
-        console.log(`   http://${iface.address}:${PORT}`);
-      }
+  server.listen(PORT, '0.0.0.0', () => {
+    console.log('\n======================================================');
+    console.log('COB ADVOGADOS - SISTEMA DE ATENDIMENTO PRONTO');
+    console.log('======================================================');
+    console.log(`Banco de dados: ${pgPool ? 'PostgreSQL/Supabase' : 'JSON local'}`);
+    console.log(`Acesso local no servidor: http://localhost:${PORT}`);
+
+    const interfaces = os.networkInterfaces();
+    console.log('\nEnderecos para acesso na rede local (LAN):');
+    Object.keys(interfaces).forEach(ifname => {
+      interfaces[ifname].forEach(iface => {
+        if (iface.family === 'IPv4' && !iface.internal) {
+          console.log(`   http://${iface.address}:${PORT}`);
+        }
+      });
     });
+    console.log('======================================================\n');
   });
-  console.log('======================================================\n');
+}
+
+startServer().catch(err => {
+  console.error('Falha ao iniciar o servidor:', err);
+  process.exit(1);
 });

@@ -36,19 +36,31 @@ Observacao: no plano gratuito, o servico pode "dormir" apos um tempo sem uso e a
 
 ## Supabase Free
 
-Para dados permanentes online, o proximo passo recomendado e trocar `data/database.json` por PostgreSQL no Supabase.
+Para dados permanentes online, o projeto usa PostgreSQL/Supabase quando a variavel `DATABASE_URL` existe. Sem `DATABASE_URL`, ele continua usando `data/database.json` localmente.
 
-Tabelas sugeridas:
+### 1. Criar a tabela
 
-- `users`
-- `lawyers`
-- `appointments`
+No Supabase:
 
-Variavel futura:
+1. Abra o projeto.
+2. Va em `SQL Editor`.
+3. Cole e execute o conteudo de `supabase-schema.sql`.
+
+### 2. Pegar a connection string
+
+No Supabase:
+
+1. Clique em `Connect`.
+2. Use a string do `Session pooler`.
+3. Troque `[YOUR-PASSWORD]` pela senha do banco.
+
+Variavel no Render:
 
 ```env
 DATABASE_URL=postgresql://usuario:senha@host:5432/postgres
 ```
+
+O app cria/atualiza automaticamente o registro principal em `app_state`.
 
 ## Checklist antes de abrir para clientes
 
