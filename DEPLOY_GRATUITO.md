@@ -29,7 +29,7 @@ Configuracao sugerida:
   - `JWT_SECRET`
   - `SESSION_TTL=8h`
   - `BUSINESS_TIME_ZONE=America/Fortaleza`
-  - `ALLOWED_ORIGIN=https://seu-app.onrender.com`
+  - `ALLOWED_ORIGIN=https://advocob.onrender.com`
   - `PANEL_TOKEN=um-token-forte-para-a-tv`
 
 Observacao: no plano gratuito, o servico pode "dormir" apos um tempo sem uso e acordar com atraso no primeiro acesso.

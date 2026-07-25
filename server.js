@@ -37,12 +37,27 @@ if (JWT_SECRET === 'dev-only-change-this-secret-before-online') {
   console.warn('[Seguranca] Defina JWT_SECRET antes de publicar o sistema online.');
 }
 
-const allowedOrigins = ALLOWED_ORIGIN.split(',')
-  .map(origin => origin.trim())
-  .filter(Boolean);
+function normalizeOrigin(origin) {
+  if (!origin) return '';
+
+  try {
+    return new URL(origin).origin.toLowerCase();
+  } catch (err) {
+    return origin.trim().replace(/\/+$/, '').toLowerCase();
+  }
+}
+
+const allowedOrigins = new Set(
+  [
+    ...ALLOWED_ORIGIN.split(','),
+    process.env.RENDER_EXTERNAL_URL
+  ]
+    .map(origin => normalizeOrigin(origin))
+    .filter(Boolean)
+);
 
 function corsOrigin(origin, callback) {
-  if (ALLOWED_ORIGIN === '*' || !origin || allowedOrigins.includes(origin)) {
+  if (ALLOWED_ORIGIN === '*' || !origin || allowedOrigins.has(normalizeOrigin(origin))) {
     return callback(null, true);
   }
   return callback(new Error('Origem nao permitida pelo CORS.'));
