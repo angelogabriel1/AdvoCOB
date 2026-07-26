@@ -696,6 +696,7 @@ function addAuditLog(action, session, details = {}, req = null) {
 
 function isSuperAdminSession(session) {
   if (!session || session.role !== 'admin') return false;
+  if (SUPERADMIN_USERNAMES.length === 0) return true;
   return SUPERADMIN_USERNAMES.includes(normalizeUsername(session.username));
 }
 
@@ -764,8 +765,8 @@ function requireRole(...roles) {
 }
 
 function requireCriticalAdmin(req, res, next) {
-  if (!isSuperAdminSession(req.session)) {
-    return res.status(403).json({ error: 'Apenas o administrador principal pode executar esta acao.' });
+  if (!req.session || req.session.role !== 'admin') {
+    return res.status(403).json({ error: 'Apenas administradores podem executar esta acao.' });
   }
 
   next();

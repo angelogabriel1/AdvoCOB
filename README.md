@@ -106,7 +106,7 @@ Desenvolvido por Angelo e Ivan para **COB Advogados (Cavalcanti, Oliveira & Bati
 - A restauracao sempre funciona em modo mesclagem: adiciona apenas informacoes novas e preserva o que ja esta cadastrado no servidor.
 - Antes de restaurar, o arquivo e validado e o sistema mostra quantos itens serao adicionados ou ignorados por duplicidade.
 - Acoes criticas sao registradas em auditoria: exportar/restaurar backup, alterar usuario, resetar senha, excluir advogado e movimentacoes de atendimentos.
-- Acoes criticas exigem usuario listado em `SUPERADMIN_USERNAMES` no ambiente. Por padrao, o usuario `admin` e o superadmin.
+- Acoes criticas exigem `role=admin`. `SUPERADMIN_USERNAMES` fica apenas como marcacao opcional de admins principais na sessao.
 - O servidor cria backups automaticos em `data/backups` quando `AUTO_BACKUP_ENABLED=true`. Em hospedagem gratuita, use tambem o download manual porque disco local pode ser temporario.
 - O endpoint `/api/health` retorna status do servidor, banco, contadores e ultimo backup automatico.
 
