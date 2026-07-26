@@ -6,9 +6,15 @@ yarn-error.log*
 
 # Banco de dados local e dados sensíveis de clientes
 data/database.json
+data/backups/
 data/*.db
 data/*.sqlite
-
+data/*.txt
+backups/
+psswords.txt
+passwords.txt
+secrets.txt
+*.pem
 # Variáveis de ambiente e segredos locais
 .env
 .env.local

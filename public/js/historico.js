@@ -312,6 +312,55 @@ function exportHistoryCSV() {
   downloadCSV(lines.join('\n'), `historico_agendamentos_${new Date().toISOString().split('T')[0]}.csv`);
 }
 
+function exportHistoryExcel() {
+  if (filteredAppointments.length === 0 && filteredEvents.length === 0) {
+    alert('Nao ha dados filtrados para exportar.');
+    return;
+  }
+
+  const appointmentHeaders = ['Data', 'Horario', 'Cliente', 'Telefone', 'Advogado', 'Sala', 'Status', 'Observacoes', 'Criado em', 'Atualizado em'];
+  const appointmentRows = filteredAppointments.map(item => [
+    item.scheduledDate || '',
+    item.scheduledTime || '',
+    item.clientName,
+    item.clientPhone,
+    item.lawyerName,
+    item.lawyerRoom,
+    item.status || '',
+    item.notes,
+    formatDateTime(item.createdAt),
+    formatDateTime(item.updatedAt || item.finishedAt || item.cancelledAt)
+  ]);
+
+  const eventHeaders = ['Movimentacao', 'Data/Hora', 'Cliente', 'Advogado', 'Status', 'Usuario', 'Detalhes'];
+  const eventRows = filteredEvents.map(event => {
+    const appointment = event.appointment || {};
+    return [
+      eventLabel(event.type),
+      formatDateTime(event.createdAt),
+      appointment.clientName,
+      appointment.lawyerName,
+      appointment.status || '',
+      event.actor && event.actor.name ? event.actor.name : 'Sistema',
+      eventDetailsText(event)
+    ];
+  });
+
+  const html = `
+    <html>
+      <head><meta charset="UTF-8"></head>
+      <body>
+        <h2>Agendamentos</h2>
+        ${tableToHtml(appointmentHeaders, appointmentRows)}
+        <h2>Movimentacoes</h2>
+        ${tableToHtml(eventHeaders, eventRows)}
+      </body>
+    </html>
+  `;
+
+  downloadExcel(html, `historico_agendamentos_${new Date().toISOString().split('T')[0]}.xls`);
+}
+
 function renderStatusBadge(status) {
   if (status === 'aguardando') return '<span class="badge badge-aguardando">Aguardando</span>';
   if (status === 'em_atendimento') return '<span class="badge badge-em_atendimento">Em atendimento</span>';
@@ -366,6 +415,40 @@ function downloadCSV(content, filename) {
   link.click();
   document.body.removeChild(link);
   URL.revokeObjectURL(url);
+}
+
+function downloadExcel(content, filename) {
+  const blob = new Blob(['\uFEFF' + content], { type: 'application/vnd.ms-excel;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(url);
+}
+
+function tableToHtml(headers, rows) {
+  return `
+    <table border="1">
+      <thead>
+        <tr>${headers.map(header => `<th>${htmlCell(header)}</th>`).join('')}</tr>
+      </thead>
+      <tbody>
+        ${rows.map(row => `<tr>${row.map(value => `<td>${htmlCell(value)}</td>`).join('')}</tr>`).join('')}
+      </tbody>
+    </table>
+  `;
+}
+
+function htmlCell(value) {
+  return String(value || '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
 }
 
 function csvCell(value) {

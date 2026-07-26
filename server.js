@@ -29,6 +29,13 @@ const DATABASE_URL = process.env.DATABASE_URL || '';
 const ADMIN_RECOVERY_CODE = process.env.ADMIN_RECOVERY_CODE || '';
 const BACKUP_FORMAT = 'cob-advogados-backup';
 const BACKUP_VERSION = 1;
+const SUPERADMIN_USERNAMES = (process.env.SUPERADMIN_USERNAMES || 'admin')
+  .split(',')
+  .map(username => normalizeUsername(username))
+  .filter(Boolean);
+const AUTO_BACKUP_ENABLED = process.env.AUTO_BACKUP_ENABLED !== 'false';
+const AUTO_BACKUP_INTERVAL_HOURS = Math.max(1, Number(process.env.AUTO_BACKUP_INTERVAL_HOURS || 24));
+const AUTO_BACKUP_RETAIN = Math.max(1, Number(process.env.AUTO_BACKUP_RETAIN || 14));
 
 const DATA_DIR = process.env.DATA_DIR
   ? path.resolve(process.env.DATA_DIR)
@@ -36,6 +43,9 @@ const DATA_DIR = process.env.DATA_DIR
 const DB_FILE = process.env.DB_FILE
   ? path.resolve(process.env.DB_FILE)
   : path.join(DATA_DIR, 'database.json');
+const BACKUP_DIR = process.env.BACKUP_DIR
+  ? path.resolve(process.env.BACKUP_DIR)
+  : path.join(DATA_DIR, 'backups');
 
 if (JWT_SECRET === 'dev-only-change-this-secret-before-online') {
   console.warn('[Seguranca] Defina JWT_SECRET antes de publicar o sistema online.');
@@ -164,7 +174,8 @@ function makeDefaultData() {
       }
     ],
     appointments: [],
-    appointmentHistory: []
+    appointmentHistory: [],
+    auditLogs: []
   };
 }
 
@@ -179,6 +190,7 @@ function normalizeData(data, defaults = makeDefaultData()) {
   if (!Array.isArray(data.users)) data.users = defaults.users;
   if (!Array.isArray(data.appointments)) data.appointments = [];
   if (!Array.isArray(data.appointmentHistory)) data.appointmentHistory = [];
+  if (!Array.isArray(data.auditLogs)) data.auditLogs = [];
 
   if (data.lawyers.length === 0) data.lawyers = defaults.lawyers;
 
@@ -345,6 +357,56 @@ function addHistoryEvent(type, appointment, session, details = {}) {
   return event;
 }
 
+function redactSensitiveDetails(value) {
+  if (!value || typeof value !== 'object') return value;
+
+  if (Array.isArray(value)) return value.map(item => redactSensitiveDetails(item));
+
+  const redacted = {};
+  Object.keys(value).forEach(key => {
+    const lowered = key.toLowerCase();
+    if (lowered.includes('password') || lowered.includes('token') || lowered.includes('secret') || lowered.includes('hash')) {
+      redacted[key] = '[redacted]';
+      return;
+    }
+
+    redacted[key] = redactSensitiveDetails(value[key]);
+  });
+
+  return redacted;
+}
+
+function getRequestMeta(req) {
+  if (!req) return {};
+
+  return {
+    ip: req.ip || req.socket?.remoteAddress || '',
+    userAgent: String(req.headers['user-agent'] || '').slice(0, 220)
+  };
+}
+
+function addAuditLog(action, session, details = {}, req = null) {
+  if (!Array.isArray(db.auditLogs)) db.auditLogs = [];
+
+  const event = {
+    id: `audit_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+    action,
+    createdAt: new Date().toISOString(),
+    actor: getActorFromSession(session),
+    details: redactSensitiveDetails(details),
+    request: getRequestMeta(req)
+  };
+
+  db.auditLogs.unshift(event);
+  db.auditLogs = db.auditLogs.slice(0, 2000);
+  return event;
+}
+
+function isSuperAdminSession(session) {
+  if (!session || session.role !== 'admin') return false;
+  return SUPERADMIN_USERNAMES.includes(normalizeUsername(session.username));
+}
+
 function getSessionForUser(user) {
   const lawyer = user.lawyerId ? db.lawyers.find(item => item.id === user.lawyerId) : null;
 
@@ -353,6 +415,7 @@ function getSessionForUser(user) {
     username: user.username,
     name: user.name,
     role: user.role,
+    isSuperAdmin: user.role === 'admin' && SUPERADMIN_USERNAMES.includes(normalizeUsername(user.username)),
     lawyerId: user.lawyerId || null,
     lawyerName: lawyer ? lawyer.name : null,
     lawyerRoom: lawyer ? lawyer.room : null
@@ -406,6 +469,14 @@ function requireRole(...roles) {
       next();
     }
   ];
+}
+
+function requireCriticalAdmin(req, res, next) {
+  if (!isSuperAdminSession(req.session)) {
+    return res.status(403).json({ error: 'Apenas o administrador principal pode executar esta acao.' });
+  }
+
+  next();
 }
 
 function visibleAppointmentsForSession(session) {
@@ -520,6 +591,15 @@ function getCollectionItemKey(collection, item) {
     ].join('|');
   }
 
+  if (collection === 'auditLogs') {
+    return [
+      'audit',
+      String(item.action || '').trim(),
+      String(item.createdAt || '').trim(),
+      String(item.actor?.userId || item.actor?.username || '').trim()
+    ].join('|');
+  }
+
   return JSON.stringify(item);
 }
 
@@ -566,7 +646,8 @@ function makeBackupPayload() {
     lawyers: dedupeCollection('lawyers', db.lawyers),
     users: dedupeCollection('users', db.users),
     appointments: dedupeCollection('appointments', db.appointments),
-    appointmentHistory: dedupeCollection('appointmentHistory', db.appointmentHistory)
+    appointmentHistory: dedupeCollection('appointmentHistory', db.appointmentHistory),
+    auditLogs: dedupeCollection('auditLogs', db.auditLogs)
   };
 
   return {
@@ -578,7 +659,8 @@ function makeBackupPayload() {
       lawyers: data.lawyers.length,
       users: data.users.length,
       appointments: data.appointments.length,
-      appointmentHistory: data.appointmentHistory.length
+      appointmentHistory: data.appointmentHistory.length,
+      auditLogs: data.auditLogs.length
     },
     data
   };
@@ -596,15 +678,16 @@ function readBackupData(payload) {
     lawyers: dedupeCollection('lawyers', data.lawyers),
     users: dedupeCollection('users', data.users),
     appointments: dedupeCollection('appointments', data.appointments),
-    appointmentHistory: dedupeCollection('appointmentHistory', data.appointmentHistory)
+    appointmentHistory: dedupeCollection('appointmentHistory', data.appointmentHistory),
+    auditLogs: dedupeCollection('auditLogs', data.auditLogs)
   };
 }
 
-function mergeCollection(collection, importedItems) {
-  if (!Array.isArray(db[collection])) db[collection] = [];
-
+function getExistingCollectionKeys(collection) {
   const existingKeys = new Set();
-  db[collection].forEach(item => {
+  const currentItems = Array.isArray(db[collection]) ? db[collection] : [];
+
+  currentItems.forEach(item => {
     const keys = [
       getCollectionItemKey(collection, item),
       ...getAlternateCollectionKeys(collection, item)
@@ -612,6 +695,11 @@ function mergeCollection(collection, importedItems) {
     keys.forEach(key => existingKeys.add(key));
   });
 
+  return existingKeys;
+}
+
+function summarizeCollectionMerge(collection, importedItems) {
+  const existingKeys = getExistingCollectionKeys(collection);
   const stats = { added: 0, skipped: 0 };
 
   importedItems.forEach(item => {
@@ -631,6 +719,117 @@ function mergeCollection(collection, importedItems) {
   });
 
   return stats;
+}
+
+function mergeCollection(collection, importedItems) {
+  if (!Array.isArray(db[collection])) db[collection] = [];
+
+  const stats = summarizeCollectionMerge(collection, importedItems);
+  const existingKeys = getExistingCollectionKeys(collection);
+
+  importedItems.forEach(item => {
+    const keys = [
+      getCollectionItemKey(collection, item),
+      ...getAlternateCollectionKeys(collection, item)
+    ].filter(Boolean);
+
+    if (keys.length === 0 || keys.some(key => existingKeys.has(key))) return;
+
+    db[collection].push(cloneJson(item));
+    keys.forEach(key => existingKeys.add(key));
+  });
+
+  return stats;
+}
+
+function summarizeBackupImport(backupData) {
+  return {
+    lawyers: summarizeCollectionMerge('lawyers', backupData.lawyers),
+    users: summarizeCollectionMerge('users', backupData.users),
+    appointments: summarizeCollectionMerge('appointments', backupData.appointments),
+    appointmentHistory: summarizeCollectionMerge('appointmentHistory', backupData.appointmentHistory),
+    auditLogs: summarizeCollectionMerge('auditLogs', backupData.auditLogs)
+  };
+}
+
+function getBackupCounts(backupData) {
+  return {
+    lawyers: backupData.lawyers.length,
+    users: backupData.users.length,
+    appointments: backupData.appointments.length,
+    appointmentHistory: backupData.appointmentHistory.length,
+    auditLogs: backupData.auditLogs.length
+  };
+}
+
+let lastBackupResult = null;
+
+function pruneOldBackups() {
+  if (!fs.existsSync(BACKUP_DIR)) return;
+
+  const files = fs.readdirSync(BACKUP_DIR)
+    .filter(filename => filename.startsWith('backup_cob_advogados_') && filename.endsWith('.json'))
+    .map(filename => ({
+      filename,
+      path: path.join(BACKUP_DIR, filename),
+      mtimeMs: fs.statSync(path.join(BACKUP_DIR, filename)).mtimeMs
+    }))
+    .sort((a, b) => b.mtimeMs - a.mtimeMs);
+
+  files.slice(AUTO_BACKUP_RETAIN).forEach(file => {
+    try {
+      fs.unlinkSync(file.path);
+    } catch (err) {
+      console.error('Erro ao remover backup antigo:', err);
+    }
+  });
+}
+
+function writeBackupFile(reason = 'manual') {
+  const payload = makeBackupPayload();
+  const stamp = payload.exportedAt.replace(/[:.]/g, '-');
+  const filename = `backup_cob_advogados_${stamp}.json`;
+  const target = path.join(BACKUP_DIR, filename);
+
+  fs.mkdirSync(BACKUP_DIR, { recursive: true });
+  fs.writeFileSync(target, JSON.stringify(payload, null, 2), 'utf8');
+  pruneOldBackups();
+
+  lastBackupResult = {
+    success: true,
+    reason,
+    filename,
+    path: target,
+    createdAt: payload.exportedAt,
+    counts: payload.counts
+  };
+
+  return lastBackupResult;
+}
+
+function runAutoBackup(reason = 'automatico') {
+  if (!AUTO_BACKUP_ENABLED) return null;
+
+  try {
+    return writeBackupFile(reason);
+  } catch (err) {
+    lastBackupResult = {
+      success: false,
+      reason,
+      error: err.message,
+      createdAt: new Date().toISOString()
+    };
+    console.error('Erro ao criar backup automatico:', err);
+    return lastBackupResult;
+  }
+}
+
+function scheduleAutoBackups() {
+  if (!AUTO_BACKUP_ENABLED) return;
+
+  runAutoBackup('startup');
+  const intervalMs = AUTO_BACKUP_INTERVAL_HOURS * 60 * 60 * 1000;
+  setInterval(() => runAutoBackup('scheduled'), intervalMs);
 }
 
 async function persistDataNow(data) {
@@ -670,6 +869,42 @@ function safeCompareSecret(value, expected) {
   if (valueBuffer.length !== expectedBuffer.length) return false;
   return crypto.timingSafeEqual(valueBuffer, expectedBuffer);
 }
+
+app.get('/api/health', async (req, res) => {
+  const health = {
+    ok: true,
+    checkedAt: new Date().toISOString(),
+    storage: pgPool ? 'postgres' : 'json',
+    autoBackup: {
+      enabled: AUTO_BACKUP_ENABLED,
+      intervalHours: AUTO_BACKUP_INTERVAL_HOURS,
+      retain: AUTO_BACKUP_RETAIN,
+      last: lastBackupResult
+    },
+    counts: {
+      lawyers: Array.isArray(db.lawyers) ? db.lawyers.length : 0,
+      users: Array.isArray(db.users) ? db.users.length : 0,
+      appointments: Array.isArray(db.appointments) ? db.appointments.length : 0,
+      appointmentHistory: Array.isArray(db.appointmentHistory) ? db.appointmentHistory.length : 0,
+      auditLogs: Array.isArray(db.auditLogs) ? db.auditLogs.length : 0
+    }
+  };
+
+  if (pgPool) {
+    try {
+      await pgPool.query('select 1');
+      health.database = 'ok';
+    } catch (err) {
+      health.ok = false;
+      health.database = 'error';
+      health.error = 'Falha ao consultar o banco de dados.';
+    }
+  } else {
+    health.database = fs.existsSync(DB_FILE) ? 'ok' : 'not_created_yet';
+  }
+
+  res.status(health.ok ? 200 : 503).json(health);
+});
 
 app.post('/api/auth/login', authLimiter, (req, res) => {
   const { username, password } = req.body;
@@ -725,6 +960,15 @@ app.post('/api/auth/recover-admin-password', recoveryLimiter, async (req, res) =
 
   admin.passwordHash = hashPassword(temporaryPassword);
   admin.mustChangePassword = true;
+  addAuditLog('auth.admin_password_recovered', {
+    userId: admin.id,
+    username: admin.username,
+    name: admin.name,
+    role: admin.role
+  }, {
+    targetUserId: admin.id,
+    targetUsername: admin.username
+  }, req);
 
   try {
     if (pgPool) {
@@ -762,6 +1006,15 @@ app.post('/api/auth/change-password', authLimiter, (req, res) => {
 
   user.passwordHash = hashPassword(newPassword);
   user.mustChangePassword = false;
+  addAuditLog('auth.password_changed', {
+    userId: user.id,
+    username: user.username,
+    name: user.name,
+    role: user.role
+  }, {
+    targetUserId: user.id,
+    targetUsername: user.username
+  }, req);
   saveData(db);
 
   res.json({
@@ -782,17 +1035,35 @@ app.get('/api/history', requireRole('admin', 'recepcao'), (req, res) => {
   });
 });
 
-app.get('/api/admin/backup', requireRole('admin'), (req, res) => {
+app.get('/api/admin/backup', requireRole('admin'), requireCriticalAdmin, (req, res) => {
   const payload = makeBackupPayload();
   const date = payload.exportedAt.slice(0, 10);
   const filename = `backup_cob_advogados_${date}.json`;
+  addAuditLog('backup.exported', req.session, { filename, counts: payload.counts }, req);
+  saveData(db);
 
   res.setHeader('Content-Type', 'application/json; charset=utf-8');
   res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
   res.json(payload);
 });
 
-app.post('/api/admin/backup/restore', requireRole('admin'), async (req, res) => {
+app.post('/api/admin/backup/preview', requireRole('admin'), requireCriticalAdmin, (req, res) => {
+  let backupData;
+
+  try {
+    backupData = readBackupData(req.body);
+  } catch (err) {
+    return res.status(400).json({ error: err.message || 'Arquivo de backup invalido.' });
+  }
+
+  res.json({
+    success: true,
+    counts: getBackupCounts(backupData),
+    summary: summarizeBackupImport(backupData)
+  });
+});
+
+app.post('/api/admin/backup/restore', requireRole('admin'), requireCriticalAdmin, async (req, res) => {
   let backupData;
 
   try {
@@ -805,10 +1076,12 @@ app.post('/api/admin/backup/restore', requireRole('admin'), async (req, res) => 
     lawyers: mergeCollection('lawyers', backupData.lawyers),
     users: mergeCollection('users', backupData.users),
     appointments: mergeCollection('appointments', backupData.appointments),
-    appointmentHistory: mergeCollection('appointmentHistory', backupData.appointmentHistory)
+    appointmentHistory: mergeCollection('appointmentHistory', backupData.appointmentHistory),
+    auditLogs: mergeCollection('auditLogs', backupData.auditLogs)
   };
 
   db = normalizeData(db);
+  addAuditLog('backup.restored', req.session, { summary, counts: getBackupCounts(backupData) }, req);
 
   try {
     await persistDataNow(db);
@@ -824,6 +1097,13 @@ app.post('/api/admin/backup/restore', requireRole('admin'), async (req, res) => 
     success: true,
     message: 'Backup restaurado sem apagar os dados atuais.',
     summary
+  });
+});
+
+app.get('/api/admin/audit-logs', requireRole('admin'), (req, res) => {
+  const limit = Math.min(500, Math.max(1, Number(req.query.limit || 100)));
+  res.json({
+    logs: (db.auditLogs || []).slice(0, limit)
   });
 });
 
@@ -869,6 +1149,15 @@ app.put('/api/admin/users/:id', requireRole('admin'), (req, res) => {
     return res.status(400).json({ error: 'A nova senha deve conter no minimo 8 caracteres.' });
   }
 
+  const before = {
+    id: user.id,
+    username: user.username,
+    name: user.name,
+    role: user.role,
+    lawyerId: user.lawyerId || null,
+    mustChangePassword: user.mustChangePassword
+  };
+
   if (cleanPassword) {
     user.passwordHash = hashPassword(cleanPassword);
     user.mustChangePassword = false;
@@ -891,6 +1180,20 @@ app.put('/api/admin/users/:id', requireRole('admin'), (req, res) => {
     }
   }
 
+  addAuditLog('admin.user_updated', req.session, {
+    targetUserId: user.id,
+    before,
+    after: {
+      id: user.id,
+      username: user.username,
+      name: user.name,
+      role: user.role,
+      lawyerId: user.lawyerId || null,
+      mustChangePassword: user.mustChangePassword
+    },
+    passwordChanged: Boolean(cleanPassword)
+  }, req);
+
   saveData(db);
   emitLawyersUpdated();
   emitQueueUpdated();
@@ -907,7 +1210,7 @@ app.put('/api/admin/users/:id', requireRole('admin'), (req, res) => {
   });
 });
 
-app.post('/api/admin/reset-password', requireRole('admin'), (req, res) => {
+app.post('/api/admin/reset-password', requireRole('admin'), requireCriticalAdmin, (req, res) => {
   const { userId, newPassword } = req.body;
   if (!userId || !newPassword) {
     return res.status(400).json({ error: 'Usuario e nova senha sao obrigatorios.' });
@@ -924,6 +1227,10 @@ app.post('/api/admin/reset-password', requireRole('admin'), (req, res) => {
 
   user.passwordHash = hashPassword(newPassword);
   user.mustChangePassword = true;
+  addAuditLog('admin.password_reset', req.session, {
+    targetUserId: user.id,
+    targetUsername: user.username
+  }, req);
   saveData(db);
 
   res.json({ success: true, message: `Senha do usuario ${user.username} redefinida com sucesso.` });
@@ -971,16 +1278,37 @@ app.post('/api/lawyers', requireRole('admin'), (req, res) => {
 
   db.lawyers.push(newLawyer);
   db.users.push(newUser);
+  addAuditLog('admin.lawyer_created', req.session, {
+    lawyer: newLawyer,
+    user: { id: newUser.id, username: newUser.username, role: newUser.role }
+  }, req);
   saveData(db);
 
   emitLawyersUpdated();
   res.json({ lawyer: newLawyer, user: { username: newUser.username } });
 });
 
-app.delete('/api/lawyers/:id', requireRole('admin'), (req, res) => {
+app.delete('/api/lawyers/:id', requireRole('admin'), requireCriticalAdmin, (req, res) => {
   const { id } = req.params;
+  const removedLawyer = db.lawyers.find(item => item.id === id) || null;
+
+  if (!removedLawyer) {
+    return res.status(404).json({ error: 'Advogado nao encontrado.' });
+  }
+
+  const removedUsers = db.users.filter(item => item.lawyerId === id).map(user => ({
+    id: user.id,
+    username: user.username,
+    name: user.name,
+    role: user.role
+  }));
+
   db.lawyers = db.lawyers.filter(item => item.id !== id);
   db.users = db.users.filter(item => item.lawyerId !== id);
+  addAuditLog('admin.lawyer_deleted', req.session, {
+    lawyer: removedLawyer,
+    users: removedUsers
+  }, req);
   saveData(db);
   emitLawyersUpdated();
   emitQueueUpdated();
@@ -1051,6 +1379,12 @@ app.put('/api/appointments/:id', requireRole('admin', 'recepcao'), (req, res) =>
     before,
     after
   });
+  addAuditLog('appointment.updated', req.session, {
+    appointmentId: appointment.id,
+    changedFields,
+    before,
+    after
+  }, req);
 
   saveData(db);
   emitQueueUpdated();
@@ -1157,6 +1491,9 @@ io.on('connection', socket => {
     addHistoryEvent('appointment_created', newAppointment, session, {
       message: 'Agendamento criado.'
     });
+    addAuditLog('appointment.created', session, {
+      appointment: getAppointmentSnapshot(newAppointment)
+    });
     saveData(db);
 
     emitQueueUpdated();
@@ -1179,6 +1516,11 @@ io.on('connection', socket => {
     appointment.calledAt = new Date().toISOString();
     addHistoryEvent('client_called', appointment, session, {
       calledAt: appointment.calledAt
+    });
+    addAuditLog('appointment.client_called', session, {
+      appointmentId: appointment.id,
+      clientName: appointment.clientName,
+      lawyerName: appointment.lawyerName
     });
     saveData(db);
 
@@ -1221,6 +1563,11 @@ io.on('connection', socket => {
     addHistoryEvent('consultation_started', appointment, session, {
       startedAt: appointment.startedAt
     });
+    addAuditLog('appointment.consultation_started', session, {
+      appointmentId: appointment.id,
+      clientName: appointment.clientName,
+      lawyerName: appointment.lawyerName
+    });
     saveData(db);
 
     emitQueueUpdated();
@@ -1243,6 +1590,13 @@ io.on('connection', socket => {
     addHistoryEvent('consultation_finished', appointment, session, {
       finishedByRole: finishedByRole || session.role,
       finishedAt: appointment.finishedAt,
+      receptionRequests: appointment.receptionRequests
+    });
+    addAuditLog('appointment.consultation_finished', session, {
+      appointmentId: appointment.id,
+      clientName: appointment.clientName,
+      lawyerName: appointment.lawyerName,
+      finishedByRole: finishedByRole || session.role,
       receptionRequests: appointment.receptionRequests
     });
     saveData(db);
@@ -1272,6 +1626,11 @@ io.on('connection', socket => {
       addHistoryEvent('appointment_cancelled', appointment, session, {
         cancelledAt: appointment.cancelledAt
       });
+      addAuditLog('appointment.cancelled', session, {
+        appointmentId: appointment.id,
+        clientName: appointment.clientName,
+        lawyerName: appointment.lawyerName
+      });
       saveData(db);
       emitQueueUpdated();
     }
@@ -1282,17 +1641,23 @@ io.on('connection', socket => {
     if (!session) return;
 
     const today = getBusinessDateString();
+    let clearedCount = 0;
     db.appointments.forEach(appointment => {
       const appointmentDate = appointment.scheduledDate || getBusinessDateString(new Date(appointment.createdAt));
       if (appointmentDate === today && appointment.status !== 'concluido' && appointment.status !== 'cancelado') {
         appointment.status = 'cancelado';
         appointment.cancelledAt = new Date().toISOString();
+        clearedCount += 1;
         addHistoryEvent('daily_queue_cleared', appointment, session, {
           clearedDate: today
         });
       }
     });
 
+    addAuditLog('appointment.daily_queue_cleared', session, {
+      clearedDate: today,
+      clearedCount
+    });
     saveData(db);
     emitQueueUpdated();
   });
@@ -1304,6 +1669,7 @@ io.on('connection', socket => {
 
 async function startServer() {
   db = await loadData();
+  scheduleAutoBackups();
 
   server.listen(PORT, HOST, () => {
     console.log('\n======================================================');

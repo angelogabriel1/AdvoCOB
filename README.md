@@ -97,3 +97,29 @@ O arquivo `data/database.json` está incluído no `.gitignore` para garantir que
 ## 📄 Licença
 
 Desenvolvido por Angelo e Ivan para **COB Advogados (Cavalcanti, Oliveira & Batista Advogados)**. Todos os direitos reservados.
+
+---
+
+## Backup, auditoria e saude do sistema
+
+- O painel `/admin.html` possui uma area de backup completo em JSON com advogados, usuarios, agendamentos, historico e auditoria.
+- A restauracao sempre funciona em modo mesclagem: adiciona apenas informacoes novas e preserva o que ja esta cadastrado no servidor.
+- Antes de restaurar, o arquivo e validado e o sistema mostra quantos itens serao adicionados ou ignorados por duplicidade.
+- Acoes criticas sao registradas em auditoria: exportar/restaurar backup, alterar usuario, resetar senha, excluir advogado e movimentacoes de atendimentos.
+- Acoes criticas exigem usuario listado em `SUPERADMIN_USERNAMES` no ambiente. Por padrao, o usuario `admin` e o superadmin.
+- O servidor cria backups automaticos em `data/backups` quando `AUTO_BACKUP_ENABLED=true`. Em hospedagem gratuita, use tambem o download manual porque disco local pode ser temporario.
+- O endpoint `/api/health` retorna status do servidor, banco, contadores e ultimo backup automatico.
+
+### Variaveis uteis
+
+```env
+SUPERADMIN_USERNAMES=admin
+AUTO_BACKUP_ENABLED=true
+AUTO_BACKUP_INTERVAL_HOURS=24
+AUTO_BACKUP_RETAIN=14
+BACKUP_DIR=./data/backups
+```
+
+### Supabase
+
+O app segue usando `app_state` para compatibilidade com dados ja existentes. O arquivo `supabase-schema.sql` tambem deixa tabelas relacionais preparadas (`users`, `lawyers`, `appointments`, `appointment_history`, `audit_logs`) para uma migracao futura controlada.

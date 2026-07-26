@@ -30,7 +30,10 @@
         <h1>Histórico de Agendamentos</h1>
         <p>Consulta persistente de agendamentos, remarcações, cancelamentos e movimentações da fila.</p>
       </div>
-      <button class="btn btn-primary" onclick="exportHistoryCSV()">Exportar Histórico</button>
+      <div style="display: flex; gap: 0.75rem; flex-wrap: wrap;">
+        <button class="btn btn-primary" onclick="exportHistoryCSV()">Exportar CSV</button>
+        <button class="btn btn-secondary" onclick="exportHistoryExcel()">Exportar Excel</button>
+      </div>
     </div>
 
     <div class="card">

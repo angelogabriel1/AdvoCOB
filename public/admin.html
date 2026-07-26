@@ -41,7 +41,7 @@
       <div class="backup-panel">
         <div class="backup-copy">
           <strong>Backup completo do sistema</strong>
-          <p>Inclui advogados, contas de acesso, agendamentos e historico. A restauracao adiciona apenas o que ainda nao existe no servidor.</p>
+          <p>Inclui advogados, contas de acesso, agendamentos, historico e auditoria. O arquivo e validado antes da restauracao.</p>
         </div>
         <div class="backup-actions">
           <button type="button" id="downloadBackupBtn" class="btn btn-success">Baixar Backup</button>
@@ -51,6 +51,7 @@
         </div>
       </div>
       <div id="backupSummary" class="backup-summary"></div>
+      <div id="systemHealthSummary" class="backup-summary"></div>
     </div>
 
     <div class="grid-2">
@@ -140,6 +141,32 @@
             <tr>
               <td colspan="6" style="text-align: center; color: var(--text-muted); padding: 2rem;">
                 Carregando usuários...
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="card" style="margin-top: 1.5rem;">
+      <div class="card-title">
+        <span>Auditoria Recente</span>
+        <button type="button" class="btn btn-secondary btn-sm" onclick="loadAuditLogs()">Atualizar</button>
+      </div>
+      <div class="table-responsive">
+        <table class="table">
+          <thead>
+            <tr>
+              <th>Data/Hora</th>
+              <th>Acao</th>
+              <th>Usuario</th>
+              <th>Detalhes</th>
+            </tr>
+          </thead>
+          <tbody id="auditLogsTableBody">
+            <tr>
+              <td colspan="4" style="text-align: center; color: var(--text-muted); padding: 2rem;">
+                Carregando auditoria...
               </td>
             </tr>
           </tbody>

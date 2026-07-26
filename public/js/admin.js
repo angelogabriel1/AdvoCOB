@@ -3,12 +3,16 @@ const socket = Auth.createSocket();
 
 let lawyers = [];
 let users = [];
+let selectedBackupPayload = null;
+let selectedBackupPreview = null;
 
 document.addEventListener('DOMContentLoaded', () => {
   renderCOBBrandHeader('cobBrandHeader');
   setupBackupControls();
   loadLawyers();
   loadUsers();
+  loadAuditLogs();
+  loadSystemHealth();
 });
 
 socket.on('lawyers_updated', (updated) => {
@@ -124,9 +128,13 @@ function setupBackupControls() {
   if (downloadBtn) downloadBtn.addEventListener('click', downloadBackup);
   if (restoreBtn) restoreBtn.addEventListener('click', restoreBackup);
   if (fileInput) {
-    fileInput.addEventListener('change', () => {
+    fileInput.addEventListener('change', async () => {
+      selectedBackupPayload = null;
+      selectedBackupPreview = null;
       const filename = fileInput.files && fileInput.files[0] ? fileInput.files[0].name : '';
-      setBackupSummary(filename ? `Arquivo selecionado: ${filename}` : '', 'info');
+      setBackupSummary(filename ? `Arquivo selecionado: ${filename}\nValidando arquivo...` : '', 'info');
+
+      if (filename) await previewBackupFile();
     });
   }
 }
@@ -162,6 +170,8 @@ async function downloadBackup() {
 
     setBackupSummary(`Backup baixado: ${filename}`, 'success');
     showToast('Backup completo baixado com sucesso.', 'success');
+    loadAuditLogs();
+    loadSystemHealth();
   } catch (err) {
     console.error(err);
     setBackupSummary(err.message || 'Erro ao baixar backup.', 'danger');
@@ -171,6 +181,38 @@ async function downloadBackup() {
       button.disabled = false;
       button.textContent = originalText;
     }
+  }
+}
+
+async function previewBackupFile() {
+  const fileInput = document.getElementById('backupFileInput');
+  const file = fileInput && fileInput.files ? fileInput.files[0] : null;
+
+  if (!file) return;
+
+  try {
+    const text = await file.text();
+    const backup = JSON.parse(text);
+    const res = await Auth.authFetch('/api/admin/backup/preview', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ backup })
+    });
+    const data = await res.json();
+
+    if (!res.ok) {
+      throw new Error(data.error || 'Arquivo de backup invalido.');
+    }
+
+    selectedBackupPayload = backup;
+    selectedBackupPreview = data;
+    setBackupSummary(formatBackupPreview(file.name, data), 'info');
+  } catch (err) {
+    console.error(err);
+    selectedBackupPayload = null;
+    selectedBackupPreview = null;
+    const message = err instanceof SyntaxError ? 'Arquivo JSON invalido.' : (err.message || 'Erro ao validar backup.');
+    setBackupSummary(message, 'danger');
   }
 }
 
@@ -184,7 +226,17 @@ async function restoreBackup() {
     return;
   }
 
-  if (!confirm('Restaurar este backup adicionando somente informacoes que ainda nao existem no servidor?')) {
+  if (!selectedBackupPayload) {
+    await previewBackupFile();
+  }
+
+  if (!selectedBackupPayload) {
+    alert('O arquivo selecionado nao passou na validacao.');
+    return;
+  }
+
+  const confirmation = prompt('Digite RESTAURAR para adicionar ao servidor apenas os dados novos deste backup.');
+  if (confirmation !== 'RESTAURAR') {
     return;
   }
 
@@ -196,12 +248,10 @@ async function restoreBackup() {
       button.textContent = 'Restaurando...';
     }
 
-    const text = await file.text();
-    const backup = JSON.parse(text);
     const res = await Auth.authFetch('/api/admin/backup/restore', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ backup })
+      body: JSON.stringify({ backup: selectedBackupPayload })
     });
 
     const data = await res.json();
@@ -212,8 +262,12 @@ async function restoreBackup() {
     setBackupSummary(formatRestoreSummary(data.summary), 'success');
     showToast('Backup restaurado sem apagar dados atuais.', 'success');
     fileInput.value = '';
+    selectedBackupPayload = null;
+    selectedBackupPreview = null;
     loadLawyers();
     loadUsers();
+    loadAuditLogs();
+    loadSystemHealth();
   } catch (err) {
     console.error(err);
     const message = err instanceof SyntaxError ? 'Arquivo JSON invalido.' : (err.message || 'Erro ao restaurar backup.');
@@ -232,7 +286,8 @@ function formatRestoreSummary(summary = {}) {
     lawyers: 'Advogados',
     users: 'Usuarios',
     appointments: 'Agendamentos',
-    appointmentHistory: 'Historico'
+    appointmentHistory: 'Historico',
+    auditLogs: 'Auditoria'
   };
 
   return Object.keys(labels).map(key => {
@@ -241,12 +296,129 @@ function formatRestoreSummary(summary = {}) {
   }).join('\n');
 }
 
+function formatBackupPreview(filename, data = {}) {
+  const counts = data.counts || {};
+  return [
+    `Arquivo validado: ${filename}`,
+    `Conteudo: ${counts.lawyers || 0} advogados, ${counts.users || 0} usuarios, ${counts.appointments || 0} agendamentos, ${counts.appointmentHistory || 0} eventos de historico, ${counts.auditLogs || 0} logs de auditoria.`,
+    'Ao restaurar, o sistema vai adicionar apenas itens novos:',
+    formatRestoreSummary(data.summary || {})
+  ].join('\n');
+}
+
 function setBackupSummary(message, type = 'info') {
   const summary = document.getElementById('backupSummary');
   if (!summary) return;
 
   summary.className = `backup-summary backup-summary-${type}`;
   summary.textContent = message ? message : '';
+}
+
+async function loadSystemHealth() {
+  const summary = document.getElementById('systemHealthSummary');
+  if (!summary) return;
+
+  try {
+    const res = await fetch('/api/health');
+    const data = await res.json();
+    const counts = data.counts || {};
+    const lastBackup = data.autoBackup && data.autoBackup.last;
+    const backupText = lastBackup
+      ? `${lastBackup.success ? 'ok' : 'falhou'} em ${formatDateTime(lastBackup.createdAt)}`
+      : 'sem registro nesta execucao';
+
+    summary.className = `backup-summary ${data.ok ? 'backup-summary-success' : 'backup-summary-danger'}`;
+    summary.textContent = [
+      `Status: ${data.ok ? 'online' : 'com erro'} | Banco: ${data.database || data.storage}`,
+      `Registros: ${counts.users || 0} usuarios, ${counts.lawyers || 0} advogados, ${counts.appointments || 0} agendamentos, ${counts.appointmentHistory || 0} historicos, ${counts.auditLogs || 0} auditorias.`,
+      `Backup automatico: ${data.autoBackup?.enabled ? 'ativo' : 'desativado'} | Ultimo: ${backupText}`
+    ].join('\n');
+  } catch (err) {
+    console.error(err);
+    summary.className = 'backup-summary backup-summary-danger';
+    summary.textContent = 'Nao foi possivel consultar /api/health.';
+  }
+}
+
+async function loadAuditLogs() {
+  const tbody = document.getElementById('auditLogsTableBody');
+  if (!tbody) return;
+
+  try {
+    const res = await Auth.authFetch('/api/admin/audit-logs?limit=80');
+    const data = await res.json();
+
+    if (!res.ok) {
+      tbody.innerHTML = `
+        <tr>
+          <td colspan="4" style="text-align: center; color: var(--accent-red); padding: 2rem;">
+            ${escapeHtml(data.error || 'Erro ao carregar auditoria.')}
+          </td>
+        </tr>
+      `;
+      return;
+    }
+
+    renderAuditLogs(data.logs || []);
+  } catch (err) {
+    console.error(err);
+  }
+}
+
+function renderAuditLogs(logs) {
+  const tbody = document.getElementById('auditLogsTableBody');
+  if (!tbody) return;
+
+  if (!logs.length) {
+    tbody.innerHTML = `
+      <tr>
+        <td colspan="4" style="text-align: center; color: var(--text-muted); padding: 2rem;">
+          Nenhuma acao auditada ainda.
+        </td>
+      </tr>
+    `;
+    return;
+  }
+
+  tbody.innerHTML = logs.map(log => {
+    const actor = log.actor || {};
+    return `
+      <tr>
+        <td style="white-space: nowrap;">${escapeHtml(formatDateTime(log.createdAt))}</td>
+        <td><code style="color: var(--accent-gold);">${escapeHtml(log.action || '')}</code></td>
+        <td>
+          <strong>${escapeHtml(actor.name || actor.username || 'Sistema')}</strong>
+          <div style="font-size: 0.78rem; color: var(--text-muted);">${escapeHtml(actor.role || '')}</div>
+        </td>
+        <td class="audit-details">${escapeHtml(formatAuditDetails(log.details))}</td>
+      </tr>
+    `;
+  }).join('');
+}
+
+function formatAuditDetails(details) {
+  if (!details || typeof details !== 'object') return '';
+
+  if (details.summary) return formatRestoreSummary(details.summary);
+  if (details.appointmentId) return `Agendamento: ${details.appointmentId}`;
+  if (details.targetUsername) return `Usuario: ${details.targetUsername}`;
+  if (details.lawyer && details.lawyer.name) return `Advogado: ${details.lawyer.name}`;
+  if (details.clearedDate) return `Data: ${details.clearedDate} | Itens: ${details.clearedCount || 0}`;
+
+  return JSON.stringify(details).slice(0, 240);
+}
+
+function formatDateTime(value) {
+  if (!value) return '';
+
+  try {
+    return new Intl.DateTimeFormat('pt-BR', {
+      dateStyle: 'short',
+      timeStyle: 'short'
+    }).format(new Date(value));
+  } catch (err) {
+    return value;
+  }
 }
 
 // Cadastrar Novo Advogado
@@ -286,23 +458,34 @@ document.getElementById('addLawyerForm').addEventListener('submit', async (e) =>
     showToast('Advogado e conta criados com sucesso!', 'success');
     loadLawyers();
     loadUsers();
+    loadAuditLogs();
   } catch (err) {
     console.error(err);
   }
 });
 
 async function deleteLawyer(lawyerId) {
-  if (confirm('Tem certeza que deseja excluir este advogado e remover sua conta de login?')) {
-    try {
-      const res = await Auth.authFetch(`/api/lawyers/${lawyerId}`, { method: 'DELETE' });
-      if (res.ok) {
-        showToast('Advogado excluído com sucesso.', 'info');
-        loadLawyers();
-        loadUsers();
-      }
-    } catch (err) {
-      console.error(err);
+  const lawyer = lawyers.find(item => item.id === lawyerId);
+  const label = lawyer ? lawyer.name : 'este advogado';
+  const confirmation = prompt(`Digite EXCLUIR para remover ${label} e sua conta de login.`);
+
+  if (confirmation !== 'EXCLUIR') return;
+
+  try {
+    const res = await Auth.authFetch(`/api/lawyers/${lawyerId}`, { method: 'DELETE' });
+    const data = await res.json().catch(() => ({}));
+
+    if (!res.ok) {
+      alert(data.error || 'Erro ao excluir advogado.');
+      return;
     }
+
+    showToast('Advogado excluido com sucesso.', 'info');
+    loadLawyers();
+    loadUsers();
+    loadAuditLogs();
+  } catch (err) {
+    console.error(err);
   }
 }
 
@@ -374,6 +557,7 @@ document.getElementById('editUserForm').addEventListener('submit', async (e) => 
 
     loadUsers();
     loadLawyers();
+    loadAuditLogs();
   } catch (err) {
     console.error(err);
   }
@@ -415,16 +599,19 @@ document.getElementById('resetPasswordForm').addEventListener('submit', async (e
     closeResetModal();
     showToast('Senha redefinida com sucesso. O usuário deverá cadastrar nova senha no próximo login.', 'success');
     loadUsers();
+    loadAuditLogs();
   } catch (err) {
     console.error(err);
   }
 });
 
 function clearDailyQueue() {
-  if (confirm('ATENÇÃO: Tem certeza que deseja limpar toda a fila de atendimentos do dia?')) {
-    socket.emit('clear_daily_queue');
-    showToast('Fila do dia limpa com sucesso.', 'info');
-  }
+  const confirmation = prompt('Digite ZERAR para cancelar toda a fila ativa do dia.');
+  if (confirmation !== 'ZERAR') return;
+
+  socket.emit('clear_daily_queue');
+  showToast('Fila do dia limpa com sucesso.', 'info');
+  setTimeout(loadAuditLogs, 500);
 }
 
 function showToast(text, type = 'info') {
