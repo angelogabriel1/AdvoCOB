@@ -18,6 +18,7 @@ const app = express();
 const server = http.createServer(app);
 
 const PORT = process.env.PORT || 3000;
+const HOST = process.env.HOST || '0.0.0.0';
 const JWT_SECRET = process.env.JWT_SECRET || 'dev-only-change-this-secret-before-online';
 const SESSION_TTL = process.env.SESSION_TTL || '8h';
 const BUSINESS_TIME_ZONE = process.env.BUSINESS_TIME_ZONE || 'America/Fortaleza';
@@ -26,6 +27,8 @@ const ALLOWED_ORIGIN = process.env.ALLOWED_ORIGIN || '*';
 const PANEL_TOKEN = process.env.PANEL_TOKEN || '';
 const DATABASE_URL = process.env.DATABASE_URL || '';
 const ADMIN_RECOVERY_CODE = process.env.ADMIN_RECOVERY_CODE || '';
+const BACKUP_FORMAT = 'cob-advogados-backup';
+const BACKUP_VERSION = 1;
 
 const DATA_DIR = process.env.DATA_DIR
   ? path.resolve(process.env.DATA_DIR)
@@ -478,9 +481,170 @@ function normalizeReceptionRequests(requests) {
   return hasRequest ? normalized : null;
 }
 
+function cloneJson(value) {
+  return JSON.parse(JSON.stringify(value));
+}
+
+function getCollectionItemKey(collection, item) {
+  if (!item || typeof item !== 'object') return '';
+  if (item.id) return `id:${String(item.id)}`;
+
+  if (collection === 'users' && item.username) {
+    return `username:${normalizeUsername(item.username)}`;
+  }
+
+  if (collection === 'lawyers') {
+    const username = normalizeUsername(item.username);
+    if (username) return `username:${username}`;
+    return `profile:${String(item.name || '').trim().toLowerCase()}|${String(item.room || '').trim().toLowerCase()}`;
+  }
+
+  if (collection === 'appointments') {
+    return [
+      'appointment',
+      String(item.clientName || '').trim().toLowerCase(),
+      String(item.clientPhone || '').trim(),
+      String(item.lawyerId || item.lawyerName || '').trim().toLowerCase(),
+      String(item.scheduledDate || '').trim(),
+      String(item.scheduledTime || '').trim(),
+      String(item.createdAt || '').trim()
+    ].join('|');
+  }
+
+  if (collection === 'appointmentHistory') {
+    return [
+      'history',
+      String(item.type || '').trim(),
+      String(item.appointmentId || '').trim(),
+      String(item.createdAt || '').trim()
+    ].join('|');
+  }
+
+  return JSON.stringify(item);
+}
+
+function getAlternateCollectionKeys(collection, item) {
+  const keys = [];
+
+  if (!item || typeof item !== 'object') return keys;
+
+  if ((collection === 'users' || collection === 'lawyers') && item.username) {
+    keys.push(`username:${normalizeUsername(item.username)}`);
+  }
+
+  if (collection === 'lawyers') {
+    const profileKey = `profile:${String(item.name || '').trim().toLowerCase()}|${String(item.room || '').trim().toLowerCase()}`;
+    keys.push(profileKey);
+  }
+
+  return keys.filter(Boolean);
+}
+
+function dedupeCollection(collection, items) {
+  const seen = new Set();
+  const cleanItems = [];
+
+  (Array.isArray(items) ? items : []).forEach(item => {
+    if (!item || typeof item !== 'object' || Array.isArray(item)) return;
+
+    const cleanItem = cloneJson(item);
+    const key = getCollectionItemKey(collection, cleanItem);
+    const alternateKeys = getAlternateCollectionKeys(collection, cleanItem);
+    const allKeys = [key, ...alternateKeys].filter(Boolean);
+
+    if (allKeys.some(itemKey => seen.has(itemKey))) return;
+
+    cleanItems.push(cleanItem);
+    allKeys.forEach(itemKey => seen.add(itemKey));
+  });
+
+  return cleanItems;
+}
+
+function makeBackupPayload() {
+  const data = {
+    lawyers: dedupeCollection('lawyers', db.lawyers),
+    users: dedupeCollection('users', db.users),
+    appointments: dedupeCollection('appointments', db.appointments),
+    appointmentHistory: dedupeCollection('appointmentHistory', db.appointmentHistory)
+  };
+
+  return {
+    format: BACKUP_FORMAT,
+    version: BACKUP_VERSION,
+    exportedAt: new Date().toISOString(),
+    storage: pgPool ? 'postgres' : 'json',
+    counts: {
+      lawyers: data.lawyers.length,
+      users: data.users.length,
+      appointments: data.appointments.length,
+      appointmentHistory: data.appointmentHistory.length
+    },
+    data
+  };
+}
+
+function readBackupData(payload) {
+  const source = payload && payload.backup ? payload.backup : payload;
+  const data = source && source.data ? source.data : source;
+
+  if (!data || typeof data !== 'object') {
+    throw new Error('Arquivo de backup invalido.');
+  }
+
+  return {
+    lawyers: dedupeCollection('lawyers', data.lawyers),
+    users: dedupeCollection('users', data.users),
+    appointments: dedupeCollection('appointments', data.appointments),
+    appointmentHistory: dedupeCollection('appointmentHistory', data.appointmentHistory)
+  };
+}
+
+function mergeCollection(collection, importedItems) {
+  if (!Array.isArray(db[collection])) db[collection] = [];
+
+  const existingKeys = new Set();
+  db[collection].forEach(item => {
+    const keys = [
+      getCollectionItemKey(collection, item),
+      ...getAlternateCollectionKeys(collection, item)
+    ].filter(Boolean);
+    keys.forEach(key => existingKeys.add(key));
+  });
+
+  const stats = { added: 0, skipped: 0 };
+
+  importedItems.forEach(item => {
+    const keys = [
+      getCollectionItemKey(collection, item),
+      ...getAlternateCollectionKeys(collection, item)
+    ].filter(Boolean);
+
+    if (keys.length === 0 || keys.some(key => existingKeys.has(key))) {
+      stats.skipped += 1;
+      return;
+    }
+
+    db[collection].push(cloneJson(item));
+    keys.forEach(key => existingKeys.add(key));
+    stats.added += 1;
+  });
+
+  return stats;
+}
+
+async function persistDataNow(data) {
+  if (pgPool) {
+    await savePostgresData(data);
+    return;
+  }
+
+  saveJsonData(data);
+}
+
 app.use(helmet({ contentSecurityPolicy: false }));
 app.use(cors(corsConfig));
-app.use(express.json({ limit: '1mb' }));
+app.use(express.json({ limit: '10mb' }));
 app.use(express.static(path.join(__dirname, 'public')));
 
 const authLimiter = rateLimit({
@@ -615,6 +779,51 @@ app.get('/api/history', requireRole('admin', 'recepcao'), (req, res) => {
   res.json({
     appointments: db.appointments,
     history: db.appointmentHistory || []
+  });
+});
+
+app.get('/api/admin/backup', requireRole('admin'), (req, res) => {
+  const payload = makeBackupPayload();
+  const date = payload.exportedAt.slice(0, 10);
+  const filename = `backup_cob_advogados_${date}.json`;
+
+  res.setHeader('Content-Type', 'application/json; charset=utf-8');
+  res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+  res.json(payload);
+});
+
+app.post('/api/admin/backup/restore', requireRole('admin'), async (req, res) => {
+  let backupData;
+
+  try {
+    backupData = readBackupData(req.body);
+  } catch (err) {
+    return res.status(400).json({ error: err.message || 'Arquivo de backup invalido.' });
+  }
+
+  const summary = {
+    lawyers: mergeCollection('lawyers', backupData.lawyers),
+    users: mergeCollection('users', backupData.users),
+    appointments: mergeCollection('appointments', backupData.appointments),
+    appointmentHistory: mergeCollection('appointmentHistory', backupData.appointmentHistory)
+  };
+
+  db = normalizeData(db);
+
+  try {
+    await persistDataNow(db);
+  } catch (err) {
+    console.error('Erro ao restaurar backup:', err);
+    return res.status(500).json({ error: 'Erro ao salvar os dados restaurados.' });
+  }
+
+  emitLawyersUpdated();
+  emitQueueUpdated();
+
+  res.json({
+    success: true,
+    message: 'Backup restaurado sem apagar os dados atuais.',
+    summary
   });
 });
 
@@ -1096,7 +1305,7 @@ io.on('connection', socket => {
 async function startServer() {
   db = await loadData();
 
-  server.listen(PORT, '0.0.0.0', () => {
+  server.listen(PORT, HOST, () => {
     console.log('\n======================================================');
     console.log('COB ADVOGADOS - SISTEMA DE ATENDIMENTO PRONTO');
     console.log('======================================================');

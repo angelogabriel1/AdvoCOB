@@ -6,6 +6,7 @@ let users = [];
 
 document.addEventListener('DOMContentLoaded', () => {
   renderCOBBrandHeader('cobBrandHeader');
+  setupBackupControls();
   loadLawyers();
   loadUsers();
 });
@@ -113,6 +114,139 @@ function renderUsersTable() {
       </tr>
     `;
   }).join('');
+}
+
+function setupBackupControls() {
+  const downloadBtn = document.getElementById('downloadBackupBtn');
+  const restoreBtn = document.getElementById('restoreBackupBtn');
+  const fileInput = document.getElementById('backupFileInput');
+
+  if (downloadBtn) downloadBtn.addEventListener('click', downloadBackup);
+  if (restoreBtn) restoreBtn.addEventListener('click', restoreBackup);
+  if (fileInput) {
+    fileInput.addEventListener('change', () => {
+      const filename = fileInput.files && fileInput.files[0] ? fileInput.files[0].name : '';
+      setBackupSummary(filename ? `Arquivo selecionado: ${filename}` : '', 'info');
+    });
+  }
+}
+
+async function downloadBackup() {
+  const button = document.getElementById('downloadBackupBtn');
+  const originalText = button ? button.textContent : '';
+
+  try {
+    if (button) {
+      button.disabled = true;
+      button.textContent = 'Gerando...';
+    }
+
+    const res = await Auth.authFetch('/api/admin/backup');
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      throw new Error(data.error || 'Erro ao gerar backup.');
+    }
+
+    const blob = await res.blob();
+    const disposition = res.headers.get('Content-Disposition') || '';
+    const match = disposition.match(/filename="([^"]+)"/);
+    const filename = match ? match[1] : `backup_cob_advogados_${new Date().toISOString().slice(0, 10)}.json`;
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
+
+    setBackupSummary(`Backup baixado: ${filename}`, 'success');
+    showToast('Backup completo baixado com sucesso.', 'success');
+  } catch (err) {
+    console.error(err);
+    setBackupSummary(err.message || 'Erro ao baixar backup.', 'danger');
+    showToast('Erro ao baixar backup.', 'danger');
+  } finally {
+    if (button) {
+      button.disabled = false;
+      button.textContent = originalText;
+    }
+  }
+}
+
+async function restoreBackup() {
+  const fileInput = document.getElementById('backupFileInput');
+  const button = document.getElementById('restoreBackupBtn');
+  const file = fileInput && fileInput.files ? fileInput.files[0] : null;
+
+  if (!file) {
+    alert('Selecione um arquivo de backup primeiro.');
+    return;
+  }
+
+  if (!confirm('Restaurar este backup adicionando somente informacoes que ainda nao existem no servidor?')) {
+    return;
+  }
+
+  const originalText = button ? button.textContent : '';
+
+  try {
+    if (button) {
+      button.disabled = true;
+      button.textContent = 'Restaurando...';
+    }
+
+    const text = await file.text();
+    const backup = JSON.parse(text);
+    const res = await Auth.authFetch('/api/admin/backup/restore', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ backup })
+    });
+
+    const data = await res.json();
+    if (!res.ok) {
+      throw new Error(data.error || 'Erro ao restaurar backup.');
+    }
+
+    setBackupSummary(formatRestoreSummary(data.summary), 'success');
+    showToast('Backup restaurado sem apagar dados atuais.', 'success');
+    fileInput.value = '';
+    loadLawyers();
+    loadUsers();
+  } catch (err) {
+    console.error(err);
+    const message = err instanceof SyntaxError ? 'Arquivo JSON invalido.' : (err.message || 'Erro ao restaurar backup.');
+    setBackupSummary(message, 'danger');
+    showToast('Erro ao restaurar backup.', 'danger');
+  } finally {
+    if (button) {
+      button.disabled = false;
+      button.textContent = originalText;
+    }
+  }
+}
+
+function formatRestoreSummary(summary = {}) {
+  const labels = {
+    lawyers: 'Advogados',
+    users: 'Usuarios',
+    appointments: 'Agendamentos',
+    appointmentHistory: 'Historico'
+  };
+
+  return Object.keys(labels).map(key => {
+    const item = summary[key] || {};
+    return `${labels[key]}: ${item.added || 0} adicionados, ${item.skipped || 0} ignorados por duplicidade`;
+  }).join('\n');
+}
+
+function setBackupSummary(message, type = 'info') {
+  const summary = document.getElementById('backupSummary');
+  if (!summary) return;
+
+  summary.className = `backup-summary backup-summary-${type}`;
+  summary.textContent = message ? message : '';
 }
 
 // Cadastrar Novo Advogado

@@ -34,6 +34,25 @@
       </div>
     </div>
 
+    <div class="card">
+      <div class="card-title">
+        <span>Backup e Restauracao</span>
+      </div>
+      <div class="backup-panel">
+        <div class="backup-copy">
+          <strong>Backup completo do sistema</strong>
+          <p>Inclui advogados, contas de acesso, agendamentos e historico. A restauracao adiciona apenas o que ainda nao existe no servidor.</p>
+        </div>
+        <div class="backup-actions">
+          <button type="button" id="downloadBackupBtn" class="btn btn-success">Baixar Backup</button>
+          <label for="backupFileInput" class="btn btn-secondary">Selecionar Arquivo</label>
+          <input type="file" id="backupFileInput" accept="application/json,.json">
+          <button type="button" id="restoreBackupBtn" class="btn btn-primary">Restaurar sem Apagar</button>
+        </div>
+      </div>
+      <div id="backupSummary" class="backup-summary"></div>
+    </div>
+
     <div class="grid-2">
       <!-- Formulário de Cadastro de Novo Advogado -->
       <div class="card">
