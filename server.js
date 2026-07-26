@@ -229,15 +229,175 @@ function saveJsonData(data) {
   }
 }
 
+function jsonParam(value) {
+  if (value === undefined || value === null) return null;
+  return JSON.stringify(value);
+}
+
+function dateParam(value) {
+  if (!value) return null;
+  const date = value instanceof Date ? value : new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function isoString(value) {
+  if (!value) return null;
+  const date = value instanceof Date ? value : new Date(value);
+  return Number.isNaN(date.getTime()) ? String(value) : date.toISOString();
+}
+
+function dateString(value) {
+  if (!value) return '';
+  if (typeof value === 'string') return value.slice(0, 10);
+  const date = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(date.getTime())) return String(value).slice(0, 10);
+  return date.toISOString().slice(0, 10);
+}
+
+function mapLawyerRow(row) {
+  return {
+    id: row.id,
+    name: row.name || '',
+    room: row.room || '',
+    specialty: row.specialty || '',
+    username: row.username || ''
+  };
+}
+
+function mapUserRow(row) {
+  return {
+    id: row.id,
+    username: row.username || '',
+    passwordHash: row.password_hash || '',
+    name: row.name || '',
+    role: row.role || '',
+    lawyerId: row.lawyer_id || null,
+    mustChangePassword: Boolean(row.must_change_password)
+  };
+}
+
+function mapAppointmentRow(row) {
+  return {
+    id: row.id,
+    clientName: row.client_name || '',
+    clientPhone: row.client_phone || '',
+    notes: row.notes || '',
+    lawyerId: row.lawyer_id || '',
+    lawyerName: row.lawyer_name || '',
+    lawyerRoom: row.lawyer_room || '',
+    scheduledDate: dateString(row.scheduled_date),
+    scheduledTime: row.scheduled_time || '',
+    status: row.status || 'aguardando',
+    receptionRequests: row.reception_requests || null,
+    updatedBy: row.updated_by || null,
+    createdAt: isoString(row.created_at),
+    updatedAt: isoString(row.updated_at),
+    calledAt: isoString(row.called_at),
+    startedAt: isoString(row.started_at),
+    finishedAt: isoString(row.finished_at),
+    cancelledAt: isoString(row.cancelled_at)
+  };
+}
+
+function mapHistoryRow(row) {
+  return {
+    id: row.id,
+    appointmentId: row.appointment_id || null,
+    type: row.type || '',
+    createdAt: isoString(row.created_at),
+    actor: row.actor || null,
+    appointment: row.appointment || null,
+    details: row.details || {}
+  };
+}
+
+function mapAuditRow(row) {
+  return {
+    id: row.id,
+    action: row.action || '',
+    createdAt: isoString(row.created_at),
+    actor: row.actor || null,
+    details: row.details || {},
+    request: row.request || {}
+  };
+}
+
 async function ensurePostgresSchema() {
   if (!pgPool) return;
 
   await pgPool.query(`
-    create table if not exists app_state (
-      key text primary key,
-      value jsonb not null,
+    create table if not exists lawyers (
+      id text primary key,
+      name text not null,
+      room text not null,
+      specialty text,
+      username text unique,
+      created_at timestamptz not null default now(),
       updated_at timestamptz not null default now()
-    )
+    );
+
+    create table if not exists users (
+      id text primary key,
+      username text not null unique,
+      password_hash text not null,
+      name text not null,
+      role text not null check (role in ('admin', 'recepcao', 'advogado')),
+      lawyer_id text references lawyers(id) on delete set null,
+      must_change_password boolean not null default true,
+      created_at timestamptz not null default now(),
+      updated_at timestamptz not null default now()
+    );
+
+    create table if not exists appointments (
+      id text primary key,
+      client_name text not null,
+      client_phone text,
+      notes text,
+      lawyer_id text,
+      lawyer_name text,
+      lawyer_room text,
+      scheduled_date date,
+      scheduled_time text,
+      status text not null default 'aguardando',
+      reception_requests jsonb,
+      updated_by jsonb,
+      created_at timestamptz,
+      updated_at timestamptz,
+      called_at timestamptz,
+      started_at timestamptz,
+      finished_at timestamptz,
+      cancelled_at timestamptz
+    );
+
+    create table if not exists appointment_history (
+      id text primary key,
+      appointment_id text,
+      type text not null,
+      created_at timestamptz not null,
+      actor jsonb,
+      appointment jsonb,
+      details jsonb
+    );
+
+    create table if not exists audit_logs (
+      id text primary key,
+      action text not null,
+      created_at timestamptz not null,
+      actor jsonb,
+      details jsonb,
+      request jsonb
+    );
+
+    create index if not exists appointments_lawyer_date_idx on appointments (lawyer_id, scheduled_date, scheduled_time);
+    create index if not exists appointments_status_idx on appointments (status);
+    create index if not exists appointment_history_created_idx on appointment_history (created_at desc);
+    create index if not exists audit_logs_created_idx on audit_logs (created_at desc);
+    create unique index if not exists appointments_no_double_booking_idx
+      on appointments (lawyer_id, scheduled_date, scheduled_time)
+      where status <> 'cancelado' and lawyer_id is not null and scheduled_date is not null and scheduled_time is not null;
+
+    alter table appointments add column if not exists updated_by jsonb;
+    alter table appointments drop constraint if exists appointments_lawyer_id_fkey;
   `);
 }
 
@@ -245,31 +405,163 @@ async function loadPostgresData() {
   const defaults = makeDefaultData();
   await ensurePostgresSchema();
 
-  const result = await pgPool.query('select value from app_state where key = $1', ['main']);
-  if (result.rows.length > 0) {
-    const normalizedData = normalizeData(result.rows[0].value, defaults);
-    await savePostgresData(normalizedData);
-    return normalizedData;
+  const [
+    lawyersResult,
+    usersResult,
+    appointmentsResult,
+    historyResult,
+    auditResult
+  ] = await Promise.all([
+    pgPool.query('select * from lawyers order by name asc'),
+    pgPool.query('select * from users order by role asc, name asc'),
+    pgPool.query('select * from appointments order by created_at desc nulls last, scheduled_date desc nulls last, scheduled_time desc nulls last'),
+    pgPool.query('select * from appointment_history order by created_at desc'),
+    pgPool.query('select * from audit_logs order by created_at desc')
+  ]);
+
+  if (lawyersResult.rows.length === 0 && usersResult.rows.length === 0) {
+    await savePostgresData(defaults);
+    return normalizeData(defaults, defaults);
   }
 
-  const localData = fs.existsSync(DB_FILE) ? loadJsonData() : defaults;
-  await savePostgresData(localData);
-  return normalizeData(localData, defaults);
+  return normalizeData({
+    lawyers: lawyersResult.rows.map(mapLawyerRow),
+    users: usersResult.rows.map(mapUserRow),
+    appointments: appointmentsResult.rows.map(mapAppointmentRow),
+    appointmentHistory: historyResult.rows.map(mapHistoryRow),
+    auditLogs: auditResult.rows.map(mapAuditRow)
+  }, defaults);
 }
 
 async function savePostgresData(data) {
   if (!pgPool) return;
 
   await ensurePostgresSchema();
-  await pgPool.query(
-    `
-      insert into app_state (key, value, updated_at)
-      values ($1, $2::jsonb, now())
-      on conflict (key)
-      do update set value = excluded.value, updated_at = now()
-    `,
-    ['main', JSON.stringify(data)]
-  );
+
+  const client = await pgPool.connect();
+  const normalized = normalizeData(cloneJson(data));
+
+  try {
+    await client.query('begin');
+    await client.query('delete from appointment_history');
+    await client.query('delete from audit_logs');
+    await client.query('delete from appointments');
+    await client.query('delete from users');
+    await client.query('delete from lawyers');
+
+    for (const lawyer of normalized.lawyers) {
+      await client.query(
+        `
+          insert into lawyers (id, name, room, specialty, username, updated_at)
+          values ($1, $2, $3, $4, $5, now())
+        `,
+        [
+          String(lawyer.id),
+          String(lawyer.name || ''),
+          String(lawyer.room || ''),
+          lawyer.specialty || null,
+          lawyer.username || null
+        ]
+      );
+    }
+
+    for (const user of normalized.users) {
+      await client.query(
+        `
+          insert into users (id, username, password_hash, name, role, lawyer_id, must_change_password, updated_at)
+          values ($1, $2, $3, $4, $5, $6, $7, now())
+        `,
+        [
+          String(user.id),
+          String(user.username || ''),
+          String(user.passwordHash || ''),
+          String(user.name || ''),
+          String(user.role || 'recepcao'),
+          user.lawyerId || null,
+          Boolean(user.mustChangePassword)
+        ]
+      );
+    }
+
+    for (const appointment of normalized.appointments) {
+      await client.query(
+        `
+          insert into appointments (
+            id, client_name, client_phone, notes, lawyer_id, lawyer_name, lawyer_room,
+            scheduled_date, scheduled_time, status, reception_requests, updated_by,
+            created_at, updated_at, called_at, started_at, finished_at, cancelled_at
+          )
+          values (
+            $1, $2, $3, $4, $5, $6, $7,
+            $8, $9, $10, $11::jsonb, $12::jsonb,
+            $13, $14, $15, $16, $17, $18
+          )
+        `,
+        [
+          String(appointment.id),
+          String(appointment.clientName || ''),
+          appointment.clientPhone || null,
+          appointment.notes || null,
+          appointment.lawyerId || null,
+          appointment.lawyerName || null,
+          appointment.lawyerRoom || null,
+          appointment.scheduledDate || null,
+          appointment.scheduledTime || null,
+          appointment.status || 'aguardando',
+          jsonParam(appointment.receptionRequests),
+          jsonParam(appointment.updatedBy),
+          dateParam(appointment.createdAt),
+          dateParam(appointment.updatedAt),
+          dateParam(appointment.calledAt),
+          dateParam(appointment.startedAt),
+          dateParam(appointment.finishedAt),
+          dateParam(appointment.cancelledAt)
+        ]
+      );
+    }
+
+    for (const event of normalized.appointmentHistory) {
+      await client.query(
+        `
+          insert into appointment_history (id, appointment_id, type, created_at, actor, appointment, details)
+          values ($1, $2, $3, $4, $5::jsonb, $6::jsonb, $7::jsonb)
+        `,
+        [
+          String(event.id),
+          event.appointmentId || null,
+          String(event.type || ''),
+          dateParam(event.createdAt) || new Date(),
+          jsonParam(event.actor),
+          jsonParam(event.appointment),
+          jsonParam(event.details || {})
+        ]
+      );
+    }
+
+    for (const log of normalized.auditLogs) {
+      await client.query(
+        `
+          insert into audit_logs (id, action, created_at, actor, details, request)
+          values ($1, $2, $3, $4::jsonb, $5::jsonb, $6::jsonb)
+        `,
+        [
+          String(log.id),
+          String(log.action || ''),
+          dateParam(log.createdAt) || new Date(),
+          jsonParam(log.actor),
+          jsonParam(log.details || {}),
+          jsonParam(log.request || {})
+        ]
+      );
+    }
+
+    await client.query('commit');
+  } catch (err) {
+    await client.query('rollback');
+    throw err;
+  } finally {
+    client.release();
+  }
 }
 
 async function loadData() {
@@ -617,6 +909,16 @@ function getAlternateCollectionKeys(collection, item) {
     keys.push(profileKey);
   }
 
+  if (
+    collection === 'appointments' &&
+    item.status !== 'cancelado' &&
+    item.lawyerId &&
+    item.scheduledDate &&
+    item.scheduledTime
+  ) {
+    keys.push(`slot:${String(item.lawyerId)}|${String(item.scheduledDate)}|${String(item.scheduledTime)}`);
+  }
+
   return keys.filter(Boolean);
 }
 
@@ -713,7 +1015,6 @@ function summarizeCollectionMerge(collection, importedItems) {
       return;
     }
 
-    db[collection].push(cloneJson(item));
     keys.forEach(key => existingKeys.add(key));
     stats.added += 1;
   });

@@ -122,4 +122,10 @@ BACKUP_DIR=./data/backups
 
 ### Supabase
 
-O app segue usando `app_state` para compatibilidade com dados ja existentes. O arquivo `supabase-schema.sql` tambem deixa tabelas relacionais preparadas (`users`, `lawyers`, `appointments`, `appointment_history`, `audit_logs`) para uma migracao futura controlada.
+Quando `DATABASE_URL` esta configurado, o app usa tabelas reais no Supabase/PostgreSQL: `users`, `lawyers`, `appointments`, `appointment_history` e `audit_logs`. O JSON local continua existindo apenas como fallback de desenvolvimento quando nao ha `DATABASE_URL`.
+
+Para criar/atualizar as tabelas no Supabase a partir do schema do projeto:
+
+```bash
+npm run db:init
+```

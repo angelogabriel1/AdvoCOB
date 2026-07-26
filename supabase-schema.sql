@@ -1,24 +1,7 @@
-create table if not exists app_state (
-  key text primary key,
-  value jsonb not null,
-  updated_at timestamptz not null default now()
-);
+-- Schema relacional principal do COB Advogados.
+-- O servidor nao usa mais app_state quando DATABASE_URL esta configurado.
+drop table if exists app_state;
 
-insert into app_state (key, value)
-values (
-  'main',
-  jsonb_build_object(
-    'lawyers', '[]'::jsonb,
-    'users', '[]'::jsonb,
-    'appointments', '[]'::jsonb,
-    'appointmentHistory', '[]'::jsonb,
-    'auditLogs', '[]'::jsonb
-  )
-)
-on conflict (key) do nothing;
-
--- Estrutura relacional preparada para uma migracao futura do app_state.
--- O servidor atual continua usando app_state para preservar compatibilidade.
 create table if not exists lawyers (
   id text primary key,
   name text not null,
@@ -46,13 +29,14 @@ create table if not exists appointments (
   client_name text not null,
   client_phone text,
   notes text,
-  lawyer_id text references lawyers(id) on delete set null,
+  lawyer_id text,
   lawyer_name text,
   lawyer_room text,
   scheduled_date date,
   scheduled_time text,
   status text not null default 'aguardando',
   reception_requests jsonb,
+  updated_by jsonb,
   created_at timestamptz,
   updated_at timestamptz,
   called_at timestamptz,
@@ -84,3 +68,7 @@ create index if not exists appointments_lawyer_date_idx on appointments (lawyer_
 create index if not exists appointments_status_idx on appointments (status);
 create index if not exists appointment_history_created_idx on appointment_history (created_at desc);
 create index if not exists audit_logs_created_idx on audit_logs (created_at desc);
+
+create unique index if not exists appointments_no_double_booking_idx
+on appointments (lawyer_id, scheduled_date, scheduled_time)
+where status <> 'cancelado' and lawyer_id is not null and scheduled_date is not null and scheduled_time is not null;
