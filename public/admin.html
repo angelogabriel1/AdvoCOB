@@ -123,6 +123,40 @@
     <!-- Seção de Gerenciamento e Edição de Contas de Usuários -->
     <div class="card" style="margin-top: 1.5rem;">
       <div class="card-title">
+        <span>Cadastrar Novo Usuario</span>
+      </div>
+      <form id="addUserForm">
+        <div class="history-filters">
+          <div class="form-group">
+            <label for="newUserName">Nome Completo *</label>
+            <input type="text" id="newUserName" class="form-control" placeholder="Ex: Mariana Souza" required>
+          </div>
+          <div class="form-group">
+            <label for="newUserUsername">Usuario de Login *</label>
+            <input type="text" id="newUserUsername" class="form-control" placeholder="Ex: mariana.suporte" required>
+          </div>
+          <div class="form-group">
+            <label for="newUserRole">Perfil de Acesso *</label>
+            <select id="newUserRole" class="form-control" required>
+              <option value="recepcao">Recepcao / Operacional</option>
+              <option value="admin">Administrador</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label for="newUserJobTitle">Cargo</label>
+            <input type="text" id="newUserJobTitle" class="form-control" placeholder="Ex: Suporte, Financeiro, Secretaria">
+          </div>
+          <div class="form-group">
+            <label for="newUserPassword">Senha Inicial</label>
+            <input type="password" id="newUserPassword" class="form-control" placeholder="Padrao: 12345678" minlength="8">
+          </div>
+        </div>
+        <button type="submit" class="btn btn-primary">Cadastrar Usuario</button>
+      </form>
+    </div>
+
+    <div class="card" style="margin-top: 1.5rem;">
+      <div class="card-title">
         <span>Gestão Completa de Contas de Acesso e Perfil</span>
       </div>
       <div class="table-responsive">
@@ -132,7 +166,7 @@
               <th>Usuário</th>
               <th>Nome Completo</th>
               <th>Papel</th>
-              <th>Sala / Especialidade</th>
+              <th>Cargo / Sala / Especialidade</th>
               <th>Senha</th>
               <th>Ações de Edição</th>
             </tr>
@@ -195,6 +229,11 @@
         <div class="form-group">
           <label for="editUsername">Usuário de Login (`username`) *</label>
           <input type="text" id="editUsername" class="form-control" required>
+        </div>
+
+        <div class="form-group">
+          <label for="editJobTitle">Cargo</label>
+          <input type="text" id="editJobTitle" class="form-control" placeholder="Ex: Suporte, Financeiro, Secretaria">
         </div>
 
         <div id="lawyerEditFields">

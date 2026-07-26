@@ -18,11 +18,14 @@ create table if not exists users (
   password_hash text not null,
   name text not null,
   role text not null check (role in ('admin', 'recepcao', 'advogado')),
+  job_title text,
   lawyer_id text references lawyers(id) on delete set null,
   must_change_password boolean not null default true,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
+
+alter table users add column if not exists job_title text;
 
 create table if not exists appointments (
   id text primary key,

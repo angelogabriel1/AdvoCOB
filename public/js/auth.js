@@ -98,6 +98,7 @@ const Auth = {
       if (session.role === 'admin') roleLabel = 'Administrador';
       else if (session.role === 'recepcao') roleLabel = 'Recepção';
       else if (session.role === 'advogado') roleLabel = session.lawyerRoom || 'Advogado';
+      if (session.jobTitle && session.role !== 'advogado') roleLabel = session.jobTitle;
 
       userElem.innerHTML = `
         <div class="user-badge">

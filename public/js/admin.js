@@ -96,7 +96,9 @@ function renderUsersTable() {
       ? '<span style="color: var(--accent-gold); font-weight: 600; font-size: 0.8rem;">Pendente (1º Login)</span>'
       : '<span style="color: var(--accent-green); font-weight: 600; font-size: 0.8rem;">Definida</span>';
 
-    const infoExtra = u.role === 'advogado' ? `${escapeHtml(u.room || 'Sem Sala')} (${escapeHtml(u.specialty || 'Geral')})` : '---';
+    const infoExtra = u.role === 'advogado'
+      ? `${escapeHtml(u.room || 'Sem Sala')} (${escapeHtml(u.specialty || 'Geral')})`
+      : escapeHtml(u.jobTitle || 'Sem cargo informado');
 
     return `
       <tr>
@@ -464,6 +466,48 @@ document.getElementById('addLawyerForm').addEventListener('submit', async (e) =>
   }
 });
 
+document.getElementById('addUserForm').addEventListener('submit', async (e) => {
+  e.preventDefault();
+
+  const name = document.getElementById('newUserName').value.trim();
+  const username = document.getElementById('newUserUsername').value.trim();
+  const role = document.getElementById('newUserRole').value;
+  const jobTitle = document.getElementById('newUserJobTitle').value.trim();
+  const password = document.getElementById('newUserPassword').value.trim() || '12345678';
+
+  if (!name || !username || !role) {
+    alert('Preencha nome, usuario e perfil de acesso.');
+    return;
+  }
+
+  try {
+    const res = await Auth.authFetch('/api/admin/users', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name, username, role, jobTitle, password })
+    });
+
+    const data = await res.json();
+    if (!res.ok) {
+      alert(data.error || 'Erro ao cadastrar usuario.');
+      return;
+    }
+
+    document.getElementById('newUserName').value = '';
+    document.getElementById('newUserUsername').value = '';
+    document.getElementById('newUserRole').value = 'recepcao';
+    document.getElementById('newUserJobTitle').value = '';
+    document.getElementById('newUserPassword').value = '';
+
+    showToast('Usuario cadastrado com sucesso!', 'success');
+    loadUsers();
+    loadAuditLogs();
+    loadSystemHealth();
+  } catch (err) {
+    console.error(err);
+  }
+});
+
 async function deleteLawyer(lawyerId) {
   const lawyer = lawyers.find(item => item.id === lawyerId);
   const label = lawyer ? lawyer.name : 'este advogado';
@@ -497,6 +541,7 @@ function openEditModal(userId) {
   document.getElementById('editUserId').value = targetUser.id;
   document.getElementById('editName').value = targetUser.name || '';
   document.getElementById('editUsername').value = targetUser.username || '';
+  document.getElementById('editJobTitle').value = targetUser.jobTitle || '';
   document.getElementById('editNewPassword').value = '';
 
   const lawyerFields = document.getElementById('lawyerEditFields');
@@ -521,6 +566,7 @@ document.getElementById('editUserForm').addEventListener('submit', async (e) => 
   const userId = document.getElementById('editUserId').value;
   const name = document.getElementById('editName').value.trim();
   const username = document.getElementById('editUsername').value.trim();
+  const jobTitle = document.getElementById('editJobTitle').value.trim();
   const room = document.getElementById('editRoom').value.trim();
   const specialty = document.getElementById('editSpecialty').value.trim();
   const password = document.getElementById('editNewPassword').value.trim();
@@ -534,7 +580,7 @@ document.getElementById('editUserForm').addEventListener('submit', async (e) => 
     const res = await Auth.authFetch(`/api/admin/users/${userId}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name, username, room, specialty, password })
+      body: JSON.stringify({ name, username, room, specialty, jobTitle, password })
     });
 
     const data = await res.json();

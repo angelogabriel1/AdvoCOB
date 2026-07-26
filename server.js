@@ -135,6 +135,7 @@ function makeDefaultData() {
         passwordHash: defaultHash,
         name: 'Administrador do Sistema',
         role: 'admin',
+        jobTitle: 'Administrador',
         mustChangePassword: true
       },
       {
@@ -143,6 +144,7 @@ function makeDefaultData() {
         passwordHash: defaultHash,
         name: 'Recepcionista',
         role: 'recepcao',
+        jobTitle: 'Recepcao',
         mustChangePassword: true
       },
       {
@@ -152,6 +154,7 @@ function makeDefaultData() {
         name: 'Dr. Carlos Eduardo',
         role: 'advogado',
         lawyerId: '1',
+        jobTitle: 'Advogado',
         mustChangePassword: true
       },
       {
@@ -161,6 +164,7 @@ function makeDefaultData() {
         name: 'Dra. Ana Paula',
         role: 'advogado',
         lawyerId: '2',
+        jobTitle: 'Advogada',
         mustChangePassword: true
       },
       {
@@ -170,6 +174,7 @@ function makeDefaultData() {
         name: 'Dr. Roberto Silva',
         role: 'advogado',
         lawyerId: '3',
+        jobTitle: 'Advogado',
         mustChangePassword: true
       }
     ],
@@ -183,6 +188,13 @@ function normalizeUsername(username) {
   return String(username || '').trim().toLowerCase();
 }
 
+function defaultJobTitleForRole(role) {
+  if (role === 'admin') return 'Administrador';
+  if (role === 'recepcao') return 'Recepcao';
+  if (role === 'advogado') return 'Advogado';
+  return 'Usuario';
+}
+
 function normalizeData(data, defaults = makeDefaultData()) {
   if (!data || typeof data !== 'object') data = {};
 
@@ -191,6 +203,10 @@ function normalizeData(data, defaults = makeDefaultData()) {
   if (!Array.isArray(data.appointments)) data.appointments = [];
   if (!Array.isArray(data.appointmentHistory)) data.appointmentHistory = [];
   if (!Array.isArray(data.auditLogs)) data.auditLogs = [];
+
+  data.users.forEach(user => {
+    if (!user.jobTitle) user.jobTitle = defaultJobTitleForRole(user.role);
+  });
 
   if (data.lawyers.length === 0) data.lawyers = defaults.lawyers;
 
@@ -271,6 +287,7 @@ function mapUserRow(row) {
     passwordHash: row.password_hash || '',
     name: row.name || '',
     role: row.role || '',
+    jobTitle: row.job_title || '',
     lawyerId: row.lawyer_id || null,
     mustChangePassword: Boolean(row.must_change_password)
   };
@@ -342,6 +359,7 @@ async function ensurePostgresSchema() {
       password_hash text not null,
       name text not null,
       role text not null check (role in ('admin', 'recepcao', 'advogado')),
+      job_title text,
       lawyer_id text references lawyers(id) on delete set null,
       must_change_password boolean not null default true,
       created_at timestamptz not null default now(),
@@ -398,6 +416,7 @@ async function ensurePostgresSchema() {
 
     alter table appointments add column if not exists updated_by jsonb;
     alter table appointments drop constraint if exists appointments_lawyer_id_fkey;
+    alter table users add column if not exists job_title text;
   `);
 }
 
@@ -468,8 +487,8 @@ async function savePostgresData(data) {
     for (const user of normalized.users) {
       await client.query(
         `
-          insert into users (id, username, password_hash, name, role, lawyer_id, must_change_password, updated_at)
-          values ($1, $2, $3, $4, $5, $6, $7, now())
+          insert into users (id, username, password_hash, name, role, job_title, lawyer_id, must_change_password, updated_at)
+          values ($1, $2, $3, $4, $5, $6, $7, $8, now())
         `,
         [
           String(user.id),
@@ -477,6 +496,7 @@ async function savePostgresData(data) {
           String(user.passwordHash || ''),
           String(user.name || ''),
           String(user.role || 'recepcao'),
+          user.jobTitle || null,
           user.lawyerId || null,
           Boolean(user.mustChangePassword)
         ]
@@ -708,6 +728,7 @@ function getSessionForUser(user) {
     username: user.username,
     name: user.name,
     role: user.role,
+    jobTitle: user.jobTitle || defaultJobTitleForRole(user.role),
     isSuperAdmin: user.role === 'admin' && SUPERADMIN_USERNAMES.includes(normalizeUsername(user.username)),
     lawyerId: user.lawyerId || null,
     lawyerName: lawyer ? lawyer.name : null,
@@ -1417,6 +1438,7 @@ app.get('/api/admin/users', requireRole('admin'), (req, res) => {
       username: user.username,
       name: user.name,
       role: user.role,
+      jobTitle: user.jobTitle || defaultJobTitleForRole(user.role),
       lawyerId: user.lawyerId || null,
       room: lawyer ? lawyer.room : '',
       specialty: lawyer ? lawyer.specialty : '',
@@ -1427,9 +1449,71 @@ app.get('/api/admin/users', requireRole('admin'), (req, res) => {
   res.json(usersClean);
 });
 
+app.post('/api/admin/users', requireRole('admin'), (req, res) => {
+  const { name, username, role, jobTitle, password } = req.body;
+  const cleanName = String(name || '').trim();
+  const cleanUsername = String(username || '').trim();
+  const cleanRole = String(role || '').trim();
+  const allowedRoles = new Set(['admin', 'recepcao']);
+
+  if (!cleanName || !cleanUsername || !cleanRole) {
+    return res.status(400).json({ error: 'Nome, usuario e perfil de acesso sao obrigatorios.' });
+  }
+
+  if (!allowedRoles.has(cleanRole)) {
+    return res.status(400).json({ error: 'Perfil de acesso invalido para usuario sem cadastro de advogado.' });
+  }
+
+  const cleanPassword = password ? String(password).trim() : '';
+  if (cleanPassword && cleanPassword.length < 8) {
+    return res.status(400).json({ error: 'A senha inicial deve conter no minimo 8 caracteres.' });
+  }
+
+  const duplicate = db.users.find(item => normalizeUsername(item.username) === normalizeUsername(cleanUsername));
+  if (duplicate) {
+    return res.status(400).json({ error: `O nome de usuario "${cleanUsername}" ja esta em uso.` });
+  }
+
+  const userId = `u_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+  const newUser = {
+    id: userId,
+    username: cleanUsername,
+    passwordHash: hashPassword(cleanPassword || '12345678'),
+    name: cleanName,
+    role: cleanRole,
+    jobTitle: String(jobTitle || '').trim() || defaultJobTitleForRole(cleanRole),
+    lawyerId: null,
+    mustChangePassword: true
+  };
+
+  db.users.push(newUser);
+  addAuditLog('admin.user_created', req.session, {
+    user: {
+      id: newUser.id,
+      username: newUser.username,
+      name: newUser.name,
+      role: newUser.role,
+      jobTitle: newUser.jobTitle
+    }
+  }, req);
+  saveData(db);
+
+  res.json({
+    success: true,
+    user: {
+      id: newUser.id,
+      username: newUser.username,
+      name: newUser.name,
+      role: newUser.role,
+      jobTitle: newUser.jobTitle,
+      mustChangePassword: newUser.mustChangePassword
+    }
+  });
+});
+
 app.put('/api/admin/users/:id', requireRole('admin'), (req, res) => {
   const { id } = req.params;
-  const { name, username, room, specialty, password } = req.body;
+  const { name, username, room, specialty, jobTitle, password } = req.body;
 
   const user = db.users.find(item => item.id === id);
   if (!user) {
@@ -1456,6 +1540,7 @@ app.put('/api/admin/users/:id', requireRole('admin'), (req, res) => {
     username: user.username,
     name: user.name,
     role: user.role,
+    jobTitle: user.jobTitle || defaultJobTitleForRole(user.role),
     lawyerId: user.lawyerId || null,
     mustChangePassword: user.mustChangePassword
   };
@@ -1464,6 +1549,8 @@ app.put('/api/admin/users/:id', requireRole('admin'), (req, res) => {
     user.passwordHash = hashPassword(cleanPassword);
     user.mustChangePassword = false;
   }
+
+  user.jobTitle = String(jobTitle || '').trim() || defaultJobTitleForRole(user.role);
 
   if (user.lawyerId) {
     const lawyer = db.lawyers.find(item => item.id === user.lawyerId);
@@ -1490,6 +1577,7 @@ app.put('/api/admin/users/:id', requireRole('admin'), (req, res) => {
       username: user.username,
       name: user.name,
       role: user.role,
+      jobTitle: user.jobTitle || defaultJobTitleForRole(user.role),
       lawyerId: user.lawyerId || null,
       mustChangePassword: user.mustChangePassword
     },
@@ -1507,7 +1595,8 @@ app.put('/api/admin/users/:id', requireRole('admin'), (req, res) => {
       id: user.id,
       name: user.name,
       username: user.username,
-      role: user.role
+      role: user.role,
+      jobTitle: user.jobTitle || defaultJobTitleForRole(user.role)
     }
   });
 });
@@ -1574,6 +1663,7 @@ app.post('/api/lawyers', requireRole('admin'), (req, res) => {
     passwordHash: hashPassword(initialPassword),
     name: name.trim(),
     role: 'advogado',
+    jobTitle: 'Advogado',
     lawyerId,
     mustChangePassword: true
   };
