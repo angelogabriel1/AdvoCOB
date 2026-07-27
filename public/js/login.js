@@ -27,6 +27,10 @@ function redirectUser(session) {
     window.location.href = '/recepcao.html';
   } else if (session.role === 'advogado') {
     window.location.href = '/advogado.html';
+  } else if (session.role === 'contadora') {
+    window.location.href = '/contadora.html';
+  } else if (session.role === 'gerente') {
+    window.location.href = '/gerente.html';
   } else {
     window.location.href = '/';
   }

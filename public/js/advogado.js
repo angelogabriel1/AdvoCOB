@@ -5,6 +5,7 @@ const socket = Auth.createSocket();
 let currentLawyer = null;
 let lawyers = [];
 let appointments = [];
+let paymentRequests = [];
 let timerInterval = null;
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -13,6 +14,11 @@ document.addEventListener('DOMContentLoaded', () => {
   const finishForm = document.getElementById('finishConsultationForm');
   if (finishForm) {
     finishForm.addEventListener('submit', submitFinishConsultation);
+  }
+
+  const paymentForm = document.getElementById('paymentRequestForm');
+  if (paymentForm) {
+    paymentForm.addEventListener('submit', submitPaymentRequest);
   }
 
   if (session && session.role === 'admin') {
@@ -57,6 +63,7 @@ function setupLawyerProfile(lawyer) {
   if (subTitleElem) subTitleElem.innerText = `${lawyer.room} • ${lawyer.specialty}`;
 
   socket.emit('register_lawyer_room', lawyer.id);
+  loadPaymentRequests();
   renderLawyerView();
 }
 
@@ -87,6 +94,7 @@ function selectAdminLawyerPanel(lawyerId) {
 socket.on('init_data', (data) => {
   lawyers = data.lawyers || [];
   appointments = data.appointments || [];
+  paymentRequests = data.paymentRequests || paymentRequests;
   if (currentLawyer) {
     renderLawyerView();
   }
@@ -97,6 +105,20 @@ socket.on('queue_updated', (updatedAppointments) => {
   if (currentLawyer) {
     renderLawyerView();
   }
+});
+
+socket.on('payment_requests_updated', (updatedRequests) => {
+  paymentRequests = updatedRequests || [];
+  renderPaymentRequests();
+});
+
+socket.on('payment_request_notice', (data) => {
+  if (!data || !data.request) return;
+  if (currentLawyer && data.request.lawyerId !== currentLawyer.id) return;
+  paymentRequests = upsertPaymentRequest(paymentRequests, data.request);
+  renderPaymentRequests();
+  audioService.playLawyerAlertBell();
+  showToast(data.message || 'Solicitacao de guia atualizada.', 'success');
 });
 
 socket.on('new_client_assigned', (data) => {
@@ -156,6 +178,7 @@ function renderLawyerView() {
     .sort((a, b) => new Date(b.finishedAt || b.createdAt) - new Date(a.finishedAt || a.createdAt));
 
   renderActiveConsultationCard(activeAppt);
+  renderPaymentRequests();
   renderWaitingList(waitingAppts);
   renderFutureList(futureAppts);
   renderCompletedList(completedAppts);
@@ -263,6 +286,153 @@ function submitFinishConsultation(event) {
   });
 
   closeFinishConsultationModal();
+}
+
+async function loadPaymentRequests() {
+  try {
+    const res = await Auth.authFetch('/api/payment-requests');
+    const data = await res.json();
+    if (!res.ok) {
+      throw new Error(data.error || 'Erro ao carregar solicitacoes.');
+    }
+
+    paymentRequests = data || [];
+    renderPaymentRequests();
+  } catch (err) {
+    console.error(err);
+  }
+}
+
+async function submitPaymentRequest(event) {
+  event.preventDefault();
+
+  const processNumber = document.getElementById('paymentProcessNumber').value.trim();
+  const clientName = document.getElementById('paymentClientName').value.trim();
+  const notes = document.getElementById('paymentNotes').value.trim();
+
+  if (!processNumber) {
+    alert('Informe o numero do processo.');
+    return;
+  }
+
+  try {
+    const res = await Auth.authFetch('/api/payment-requests', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        processNumber,
+        clientName,
+        notes,
+        lawyerId: currentLawyer ? currentLawyer.id : null
+      })
+    });
+
+    const data = await res.json();
+    if (!res.ok) {
+      alert(data.error || 'Erro ao criar solicitacao.');
+      return;
+    }
+
+    paymentRequests = upsertPaymentRequest(paymentRequests, data.request);
+    renderPaymentRequests();
+    event.target.reset();
+    showToast('Solicitacao enviada para contadora e gerente.', 'success');
+  } catch (err) {
+    console.error(err);
+    alert('Erro ao se comunicar com o servidor.');
+  }
+}
+
+function upsertPaymentRequest(list, request) {
+  const withoutCurrent = (list || []).filter(item => item.id !== request.id);
+  return [request, ...withoutCurrent].sort((a, b) =>
+    new Date(b.updatedAt || b.requestedAt || 0) - new Date(a.updatedAt || a.requestedAt || 0)
+  );
+}
+
+function renderPaymentRequests() {
+  const container = document.getElementById('lawyerPaymentRequests');
+  if (!container) return;
+
+  const mine = currentLawyer
+    ? paymentRequests.filter(item => item.lawyerId === currentLawyer.id)
+    : paymentRequests;
+
+  if (!mine.length) {
+    container.innerHTML = `
+      <div style="text-align: center; color: var(--text-muted); padding: 1rem;">
+        Nenhuma solicitacao de guia enviada.
+      </div>
+    `;
+    return;
+  }
+
+  container.innerHTML = mine.map(item => `
+    <div style="background: rgba(11, 14, 20, 0.45); border: 1px solid var(--border-color); border-radius: var(--radius-sm); padding: 0.9rem 1rem;">
+      <div style="display: flex; justify-content: space-between; gap: 1rem; align-items: flex-start; flex-wrap: wrap;">
+        <div>
+          <strong style="color: var(--text-main);">${escapeHtml(item.processNumber)}</strong>
+          ${item.clientName ? `<div style="font-size: 0.82rem; color: var(--text-muted);">Cliente: ${escapeHtml(item.clientName)}</div>` : ''}
+          ${item.notes ? `<div style="font-size: 0.8rem; color: #94a3b8; margin-top: 0.25rem;">${escapeHtml(item.notes)}</div>` : ''}
+        </div>
+        ${renderPaymentStatusBadge(item.status)}
+      </div>
+      ${renderGuideSummary(item)}
+      ${renderReceiptSummary(item)}
+      <div style="font-size: 0.75rem; color: var(--text-muted); margin-top: 0.5rem;">Solicitado em ${formatDateTime(item.requestedAt)}</div>
+    </div>
+  `).join('');
+}
+
+function renderPaymentStatusBadge(status) {
+  const labels = {
+    solicitada: 'Solicitada',
+    guia_gerada: 'Guia pronta',
+    pago: 'Pago'
+  };
+  const classes = {
+    solicitada: 'badge-aguardando',
+    guia_gerada: 'badge-em_atendimento',
+    pago: 'badge-concluido'
+  };
+
+  return `<span class="badge ${classes[status] || 'badge-aguardando'}">${labels[status] || 'Solicitada'}</span>`;
+}
+
+function renderGuideSummary(item) {
+  if (!item.guideText && !item.guideLink && !item.guideAmount && !item.guideDueDate) return '';
+
+  return `
+    <div style="border-top: 1px solid var(--border-color); margin-top: 0.75rem; padding-top: 0.75rem; font-size: 0.82rem; color: var(--cob-silver-bright);">
+      <strong>Guia:</strong>
+      ${item.guideAmount ? `<span style="margin-left: 0.4rem;">Valor: ${escapeHtml(item.guideAmount)}</span>` : ''}
+      ${item.guideDueDate ? `<span style="margin-left: 0.4rem;">Vencimento: ${formatDateBR(item.guideDueDate)}</span>` : ''}
+      ${item.guideText ? `<div style="color: var(--text-muted); margin-top: 0.25rem;">${escapeHtml(item.guideText)}</div>` : ''}
+      ${renderSafeLink(item.guideLink, 'Abrir guia')}
+    </div>
+  `;
+}
+
+function renderReceiptSummary(item) {
+  if (!item.paymentReceiptText && !item.paymentReceiptLink) return '';
+
+  return `
+    <div style="border-top: 1px solid var(--border-color); margin-top: 0.75rem; padding-top: 0.75rem; font-size: 0.82rem; color: var(--accent-green);">
+      <strong>Comprovante disponivel:</strong>
+      ${item.paymentReceiptText ? `<div style="color: var(--text-muted); margin-top: 0.25rem;">${escapeHtml(item.paymentReceiptText)}</div>` : ''}
+      ${renderSafeLink(item.paymentReceiptLink, 'Abrir comprovante')}
+      ${item.paidAt ? `<div style="font-size: 0.75rem; color: var(--text-muted); margin-top: 0.35rem;">Pago em ${formatDateTime(item.paidAt)}</div>` : ''}
+    </div>
+  `;
+}
+
+function renderSafeLink(url, label) {
+  if (!url) return '';
+  const cleanUrl = String(url).trim();
+  if (!/^https?:\/\//i.test(cleanUrl)) {
+    return `<div style="color: var(--text-muted); margin-top: 0.25rem;">Link: ${escapeHtml(cleanUrl)}</div>`;
+  }
+  return `<a href="${escapeHtml(cleanUrl)}" target="_blank" rel="noopener noreferrer" class="btn btn-secondary btn-sm" style="margin-top: 0.5rem;">${escapeHtml(label)}</a>`;
 }
 
 function renderReceptionRequestsSummary(requests) {
@@ -408,6 +578,37 @@ function formatDateBR(dateStr) {
     return `${parts[2]}/${parts[1]}/${parts[0]}`;
   }
   return dateStr;
+}
+
+function formatDateTime(value) {
+  if (!value) return '';
+
+  try {
+    return new Intl.DateTimeFormat('pt-BR', {
+      dateStyle: 'short',
+      timeStyle: 'short'
+    }).format(new Date(value));
+  } catch (err) {
+    return value;
+  }
+}
+
+function showToast(text, type = 'info') {
+  const container = document.getElementById('toastContainer');
+  if (!container) {
+    alert(text);
+    return;
+  }
+
+  const toast = document.createElement('div');
+  toast.className = `toast toast-${type}`;
+  toast.innerHTML = `<div>${escapeHtml(text)}</div>`;
+  container.appendChild(toast);
+
+  setTimeout(() => {
+    toast.style.opacity = '0';
+    setTimeout(() => toast.remove(), 300);
+  }, 4000);
 }
 
 function escapeHtml(str) {

@@ -70,6 +70,10 @@ const Auth = {
         window.location.href = '/recepcao.html';
       } else if (session.role === 'advogado') {
         window.location.href = '/advogado.html';
+      } else if (session.role === 'contadora') {
+        window.location.href = '/contadora.html';
+      } else if (session.role === 'gerente') {
+        window.location.href = '/gerente.html';
       } else {
         window.location.href = '/login.html';
       }
@@ -98,6 +102,8 @@ const Auth = {
       if (session.role === 'admin') roleLabel = 'Administrador';
       else if (session.role === 'recepcao') roleLabel = 'Recepção';
       else if (session.role === 'advogado') roleLabel = session.lawyerRoom || 'Advogado';
+      else if (session.role === 'contadora') roleLabel = 'Contadora';
+      else if (session.role === 'gerente') roleLabel = 'Gerente';
       if (session.jobTitle && session.role !== 'advogado') roleLabel = session.jobTitle;
 
       userElem.innerHTML = `

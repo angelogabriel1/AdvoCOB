@@ -90,6 +90,8 @@ function renderUsersTable() {
     let roleBadge = '';
     if (u.role === 'admin') roleBadge = '<span class="badge" style="background: rgba(139, 38, 53, 0.3); color: #fca5a5; border: 1px solid var(--cob-wine);">Administrador</span>';
     else if (u.role === 'recepcao') roleBadge = '<span class="badge badge-aguardando">Recepção</span>';
+    else if (u.role === 'contadora') roleBadge = '<span class="badge badge-em_atendimento">Contadora</span>';
+    else if (u.role === 'gerente') roleBadge = '<span class="badge badge-concluido">Gerente</span>';
     else roleBadge = '<span class="badge badge-concluido">Advogado</span>';
 
     const pwdStatus = u.mustChangePassword
@@ -288,6 +290,7 @@ function formatRestoreSummary(summary = {}) {
     lawyers: 'Advogados',
     users: 'Usuarios',
     appointments: 'Agendamentos',
+    paymentRequests: 'Guias/Pagamentos',
     appointmentHistory: 'Historico',
     auditLogs: 'Auditoria'
   };
@@ -302,7 +305,7 @@ function formatBackupPreview(filename, data = {}) {
   const counts = data.counts || {};
   return [
     `Arquivo validado: ${filename}`,
-    `Conteudo: ${counts.lawyers || 0} advogados, ${counts.users || 0} usuarios, ${counts.appointments || 0} agendamentos, ${counts.appointmentHistory || 0} eventos de historico, ${counts.auditLogs || 0} logs de auditoria.`,
+    `Conteudo: ${counts.lawyers || 0} advogados, ${counts.users || 0} usuarios, ${counts.appointments || 0} agendamentos, ${counts.paymentRequests || 0} guias/pagamentos, ${counts.appointmentHistory || 0} eventos de historico, ${counts.auditLogs || 0} logs de auditoria.`,
     'Ao restaurar, o sistema vai adicionar apenas itens novos:',
     formatRestoreSummary(data.summary || {})
   ].join('\n');
@@ -332,7 +335,7 @@ async function loadSystemHealth() {
     summary.className = `backup-summary ${data.ok ? 'backup-summary-success' : 'backup-summary-danger'}`;
     summary.textContent = [
       `Status: ${data.ok ? 'online' : 'com erro'} | Banco: ${data.database || data.storage}`,
-      `Registros: ${counts.users || 0} usuarios, ${counts.lawyers || 0} advogados, ${counts.appointments || 0} agendamentos, ${counts.appointmentHistory || 0} historicos, ${counts.auditLogs || 0} auditorias.`,
+      `Registros: ${counts.users || 0} usuarios, ${counts.lawyers || 0} advogados, ${counts.appointments || 0} agendamentos, ${counts.paymentRequests || 0} guias/pagamentos, ${counts.appointmentHistory || 0} historicos, ${counts.auditLogs || 0} auditorias.`,
       `Backup automatico: ${data.autoBackup?.enabled ? 'ativo' : 'desativado'} | Ultimo: ${backupText}`
     ].join('\n');
   } catch (err) {

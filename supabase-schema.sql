@@ -17,7 +17,7 @@ create table if not exists users (
   username text not null unique,
   password_hash text not null,
   name text not null,
-  role text not null check (role in ('admin', 'recepcao', 'advogado')),
+  role text not null check (role in ('admin', 'recepcao', 'advogado', 'contadora', 'gerente')),
   job_title text,
   lawyer_id text references lawyers(id) on delete set null,
   must_change_password boolean not null default true,
@@ -26,6 +26,8 @@ create table if not exists users (
 );
 
 alter table users add column if not exists job_title text;
+alter table users drop constraint if exists users_role_check;
+alter table users add constraint users_role_check check (role in ('admin', 'recepcao', 'advogado', 'contadora', 'gerente'));
 
 create table if not exists appointments (
   id text primary key,
@@ -58,6 +60,29 @@ create table if not exists appointment_history (
   details jsonb
 );
 
+create table if not exists payment_requests (
+  id text primary key,
+  process_number text not null,
+  client_name text,
+  notes text,
+  status text not null default 'solicitada',
+  lawyer_id text,
+  lawyer_name text,
+  requested_by jsonb,
+  requested_at timestamptz not null,
+  guide_text text,
+  guide_link text,
+  guide_amount text,
+  guide_due_date date,
+  guide_generated_by jsonb,
+  guide_generated_at timestamptz,
+  payment_receipt_text text,
+  payment_receipt_link text,
+  paid_by jsonb,
+  paid_at timestamptz,
+  updated_at timestamptz
+);
+
 create table if not exists audit_logs (
   id text primary key,
   action text not null,
@@ -70,6 +95,8 @@ create table if not exists audit_logs (
 create index if not exists appointments_lawyer_date_idx on appointments (lawyer_id, scheduled_date, scheduled_time);
 create index if not exists appointments_status_idx on appointments (status);
 create index if not exists appointment_history_created_idx on appointment_history (created_at desc);
+create index if not exists payment_requests_status_idx on payment_requests (status, requested_at desc);
+create index if not exists payment_requests_lawyer_idx on payment_requests (lawyer_id, requested_at desc);
 create index if not exists audit_logs_created_idx on audit_logs (created_at desc);
 
 create unique index if not exists appointments_no_double_booking_idx

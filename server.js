@@ -113,7 +113,7 @@ function verifyUserPassword(user, password) {
   const validLegacyPassword = user.passwordHash === legacyHashPassword(password);
   if (validLegacyPassword) {
     user.passwordHash = hashPassword(password);
-    saveData(db);
+    saveData(db, { users: [user] });
   }
 
   return validLegacyPassword;
@@ -148,6 +148,24 @@ function makeDefaultData() {
         mustChangePassword: true
       },
       {
+        id: 'u_contadora',
+        username: 'contadora',
+        passwordHash: defaultHash,
+        name: 'Contadora',
+        role: 'contadora',
+        jobTitle: 'Contadora',
+        mustChangePassword: true
+      },
+      {
+        id: 'u_gerente',
+        username: 'gerente',
+        passwordHash: defaultHash,
+        name: 'Gerente',
+        role: 'gerente',
+        jobTitle: 'Gerente',
+        mustChangePassword: true
+      },
+      {
         id: 'u_carlos',
         username: 'dr.carlos',
         passwordHash: defaultHash,
@@ -179,6 +197,7 @@ function makeDefaultData() {
       }
     ],
     appointments: [],
+    paymentRequests: [],
     appointmentHistory: [],
     auditLogs: []
   };
@@ -192,6 +211,8 @@ function defaultJobTitleForRole(role) {
   if (role === 'admin') return 'Administrador';
   if (role === 'recepcao') return 'Recepcao';
   if (role === 'advogado') return 'Advogado';
+  if (role === 'contadora') return 'Contadora';
+  if (role === 'gerente') return 'Gerente';
   return 'Usuario';
 }
 
@@ -201,6 +222,7 @@ function normalizeData(data, defaults = makeDefaultData()) {
   if (!Array.isArray(data.lawyers)) data.lawyers = defaults.lawyers;
   if (!Array.isArray(data.users)) data.users = defaults.users;
   if (!Array.isArray(data.appointments)) data.appointments = [];
+  if (!Array.isArray(data.paymentRequests)) data.paymentRequests = [];
   if (!Array.isArray(data.appointmentHistory)) data.appointmentHistory = [];
   if (!Array.isArray(data.auditLogs)) data.auditLogs = [];
 
@@ -316,6 +338,31 @@ function mapAppointmentRow(row) {
   };
 }
 
+function mapPaymentRequestRow(row) {
+  return {
+    id: row.id,
+    processNumber: row.process_number || '',
+    clientName: row.client_name || '',
+    notes: row.notes || '',
+    status: row.status || 'solicitada',
+    lawyerId: row.lawyer_id || '',
+    lawyerName: row.lawyer_name || '',
+    requestedBy: row.requested_by || null,
+    requestedAt: isoString(row.requested_at),
+    guideText: row.guide_text || '',
+    guideLink: row.guide_link || '',
+    guideAmount: row.guide_amount || '',
+    guideDueDate: dateString(row.guide_due_date),
+    guideGeneratedBy: row.guide_generated_by || null,
+    guideGeneratedAt: isoString(row.guide_generated_at),
+    paymentReceiptText: row.payment_receipt_text || '',
+    paymentReceiptLink: row.payment_receipt_link || '',
+    paidBy: row.paid_by || null,
+    paidAt: isoString(row.paid_at),
+    updatedAt: isoString(row.updated_at)
+  };
+}
+
 function mapHistoryRow(row) {
   return {
     id: row.id,
@@ -358,7 +405,7 @@ async function ensurePostgresSchema() {
       username text not null unique,
       password_hash text not null,
       name text not null,
-      role text not null check (role in ('admin', 'recepcao', 'advogado')),
+      role text not null check (role in ('admin', 'recepcao', 'advogado', 'contadora', 'gerente')),
       job_title text,
       lawyer_id text references lawyers(id) on delete set null,
       must_change_password boolean not null default true,
@@ -397,6 +444,29 @@ async function ensurePostgresSchema() {
       details jsonb
     );
 
+    create table if not exists payment_requests (
+      id text primary key,
+      process_number text not null,
+      client_name text,
+      notes text,
+      status text not null default 'solicitada',
+      lawyer_id text,
+      lawyer_name text,
+      requested_by jsonb,
+      requested_at timestamptz not null,
+      guide_text text,
+      guide_link text,
+      guide_amount text,
+      guide_due_date date,
+      guide_generated_by jsonb,
+      guide_generated_at timestamptz,
+      payment_receipt_text text,
+      payment_receipt_link text,
+      paid_by jsonb,
+      paid_at timestamptz,
+      updated_at timestamptz
+    );
+
     create table if not exists audit_logs (
       id text primary key,
       action text not null,
@@ -409,6 +479,8 @@ async function ensurePostgresSchema() {
     create index if not exists appointments_lawyer_date_idx on appointments (lawyer_id, scheduled_date, scheduled_time);
     create index if not exists appointments_status_idx on appointments (status);
     create index if not exists appointment_history_created_idx on appointment_history (created_at desc);
+    create index if not exists payment_requests_status_idx on payment_requests (status, requested_at desc);
+    create index if not exists payment_requests_lawyer_idx on payment_requests (lawyer_id, requested_at desc);
     create index if not exists audit_logs_created_idx on audit_logs (created_at desc);
     create unique index if not exists appointments_no_double_booking_idx
       on appointments (lawyer_id, scheduled_date, scheduled_time)
@@ -417,6 +489,8 @@ async function ensurePostgresSchema() {
     alter table appointments add column if not exists updated_by jsonb;
     alter table appointments drop constraint if exists appointments_lawyer_id_fkey;
     alter table users add column if not exists job_title text;
+    alter table users drop constraint if exists users_role_check;
+    alter table users add constraint users_role_check check (role in ('admin', 'recepcao', 'advogado', 'contadora', 'gerente'));
   `);
 }
 
@@ -428,31 +502,282 @@ async function loadPostgresData() {
     lawyersResult,
     usersResult,
     appointmentsResult,
+    paymentRequestsResult,
     historyResult,
     auditResult
   ] = await Promise.all([
     pgPool.query('select * from lawyers order by name asc'),
     pgPool.query('select * from users order by role asc, name asc'),
     pgPool.query('select * from appointments order by created_at desc nulls last, scheduled_date desc nulls last, scheduled_time desc nulls last'),
+    pgPool.query('select * from payment_requests order by requested_at desc'),
     pgPool.query('select * from appointment_history order by created_at desc'),
-    pgPool.query('select * from audit_logs order by created_at desc')
+    pgPool.query('select * from audit_logs order by created_at desc limit 2000')
   ]);
 
-  if (lawyersResult.rows.length === 0 && usersResult.rows.length === 0) {
-    await savePostgresData(defaults);
-    return normalizeData(defaults, defaults);
-  }
-
-  return normalizeData({
+  const normalized = normalizeData({
     lawyers: lawyersResult.rows.map(mapLawyerRow),
     users: usersResult.rows.map(mapUserRow),
     appointments: appointmentsResult.rows.map(mapAppointmentRow),
+    paymentRequests: paymentRequestsResult.rows.map(mapPaymentRequestRow),
     appointmentHistory: historyResult.rows.map(mapHistoryRow),
     auditLogs: auditResult.rows.map(mapAuditRow)
   }, defaults);
+
+  const existingLawyerIds = new Set(lawyersResult.rows.map(row => String(row.id)));
+  const existingUsernames = new Set(usersResult.rows.map(row => normalizeUsername(row.username)));
+  const missingLawyers = normalized.lawyers.filter(lawyer => !existingLawyerIds.has(String(lawyer.id)));
+  const missingUsers = normalized.users.filter(user => !existingUsernames.has(normalizeUsername(user.username)));
+
+  if (missingLawyers.length > 0 || missingUsers.length > 0) {
+    await applyPostgresChanges({ lawyers: missingLawyers, users: missingUsers });
+  }
+
+  return normalized;
 }
 
-async function savePostgresData(data) {
+async function upsertLawyer(client, lawyer) {
+  await client.query(
+    `
+      insert into lawyers (id, name, room, specialty, username, updated_at)
+      values ($1, $2, $3, $4, $5, now())
+      on conflict (id) do update set
+        name = excluded.name,
+        room = excluded.room,
+        specialty = excluded.specialty,
+        username = excluded.username,
+        updated_at = now()
+    `,
+    [
+      String(lawyer.id),
+      String(lawyer.name || ''),
+      String(lawyer.room || ''),
+      lawyer.specialty || null,
+      lawyer.username || null
+    ]
+  );
+}
+
+async function upsertUser(client, user) {
+  await client.query(
+    `
+      insert into users (id, username, password_hash, name, role, job_title, lawyer_id, must_change_password, updated_at)
+      values ($1, $2, $3, $4, $5, $6, $7, $8, now())
+      on conflict (id) do update set
+        username = excluded.username,
+        password_hash = excluded.password_hash,
+        name = excluded.name,
+        role = excluded.role,
+        job_title = excluded.job_title,
+        lawyer_id = excluded.lawyer_id,
+        must_change_password = excluded.must_change_password,
+        updated_at = now()
+    `,
+    [
+      String(user.id),
+      String(user.username || ''),
+      String(user.passwordHash || ''),
+      String(user.name || ''),
+      String(user.role || 'recepcao'),
+      user.jobTitle || null,
+      user.lawyerId || null,
+      Boolean(user.mustChangePassword)
+    ]
+  );
+}
+
+async function upsertAppointment(client, appointment) {
+  await client.query(
+    `
+      insert into appointments (
+        id, client_name, client_phone, notes, lawyer_id, lawyer_name, lawyer_room,
+        scheduled_date, scheduled_time, status, reception_requests, updated_by,
+        created_at, updated_at, called_at, started_at, finished_at, cancelled_at
+      )
+      values (
+        $1, $2, $3, $4, $5, $6, $7,
+        $8, $9, $10, $11::jsonb, $12::jsonb,
+        $13, $14, $15, $16, $17, $18
+      )
+      on conflict (id) do update set
+        client_name = excluded.client_name,
+        client_phone = excluded.client_phone,
+        notes = excluded.notes,
+        lawyer_id = excluded.lawyer_id,
+        lawyer_name = excluded.lawyer_name,
+        lawyer_room = excluded.lawyer_room,
+        scheduled_date = excluded.scheduled_date,
+        scheduled_time = excluded.scheduled_time,
+        status = excluded.status,
+        reception_requests = excluded.reception_requests,
+        updated_by = excluded.updated_by,
+        created_at = excluded.created_at,
+        updated_at = excluded.updated_at,
+        called_at = excluded.called_at,
+        started_at = excluded.started_at,
+        finished_at = excluded.finished_at,
+        cancelled_at = excluded.cancelled_at
+    `,
+    [
+      String(appointment.id),
+      String(appointment.clientName || ''),
+      appointment.clientPhone || null,
+      appointment.notes || null,
+      appointment.lawyerId || null,
+      appointment.lawyerName || null,
+      appointment.lawyerRoom || null,
+      appointment.scheduledDate || null,
+      appointment.scheduledTime || null,
+      appointment.status || 'aguardando',
+      jsonParam(appointment.receptionRequests),
+      jsonParam(appointment.updatedBy),
+      dateParam(appointment.createdAt),
+      dateParam(appointment.updatedAt),
+      dateParam(appointment.calledAt),
+      dateParam(appointment.startedAt),
+      dateParam(appointment.finishedAt),
+      dateParam(appointment.cancelledAt)
+    ]
+  );
+}
+
+async function upsertPaymentRequest(client, request) {
+  await client.query(
+    `
+      insert into payment_requests (
+        id, process_number, client_name, notes, status, lawyer_id, lawyer_name,
+        requested_by, requested_at, guide_text, guide_link, guide_amount, guide_due_date,
+        guide_generated_by, guide_generated_at, payment_receipt_text, payment_receipt_link,
+        paid_by, paid_at, updated_at
+      )
+      values (
+        $1, $2, $3, $4, $5, $6, $7,
+        $8::jsonb, $9, $10, $11, $12, $13,
+        $14::jsonb, $15, $16, $17,
+        $18::jsonb, $19, $20
+      )
+      on conflict (id) do update set
+        process_number = excluded.process_number,
+        client_name = excluded.client_name,
+        notes = excluded.notes,
+        status = excluded.status,
+        lawyer_id = excluded.lawyer_id,
+        lawyer_name = excluded.lawyer_name,
+        requested_by = excluded.requested_by,
+        requested_at = excluded.requested_at,
+        guide_text = excluded.guide_text,
+        guide_link = excluded.guide_link,
+        guide_amount = excluded.guide_amount,
+        guide_due_date = excluded.guide_due_date,
+        guide_generated_by = excluded.guide_generated_by,
+        guide_generated_at = excluded.guide_generated_at,
+        payment_receipt_text = excluded.payment_receipt_text,
+        payment_receipt_link = excluded.payment_receipt_link,
+        paid_by = excluded.paid_by,
+        paid_at = excluded.paid_at,
+        updated_at = excluded.updated_at
+    `,
+    [
+      String(request.id),
+      String(request.processNumber || ''),
+      request.clientName || null,
+      request.notes || null,
+      request.status || 'solicitada',
+      request.lawyerId || null,
+      request.lawyerName || null,
+      jsonParam(request.requestedBy),
+      dateParam(request.requestedAt) || new Date(),
+      request.guideText || null,
+      request.guideLink || null,
+      request.guideAmount || null,
+      request.guideDueDate || null,
+      jsonParam(request.guideGeneratedBy),
+      dateParam(request.guideGeneratedAt),
+      request.paymentReceiptText || null,
+      request.paymentReceiptLink || null,
+      jsonParam(request.paidBy),
+      dateParam(request.paidAt),
+      dateParam(request.updatedAt)
+    ]
+  );
+}
+
+async function insertHistoryEvent(client, event) {
+  await client.query(
+    `
+      insert into appointment_history (id, appointment_id, type, created_at, actor, appointment, details)
+      values ($1, $2, $3, $4, $5::jsonb, $6::jsonb, $7::jsonb)
+      on conflict (id) do nothing
+    `,
+    [
+      String(event.id),
+      event.appointmentId || null,
+      String(event.type || ''),
+      dateParam(event.createdAt) || new Date(),
+      jsonParam(event.actor),
+      jsonParam(event.appointment),
+      jsonParam(event.details || {})
+    ]
+  );
+}
+
+async function insertAuditLog(client, log) {
+  await client.query(
+    `
+      insert into audit_logs (id, action, created_at, actor, details, request)
+      values ($1, $2, $3, $4::jsonb, $5::jsonb, $6::jsonb)
+      on conflict (id) do nothing
+    `,
+    [
+      String(log.id),
+      String(log.action || ''),
+      dateParam(log.createdAt) || new Date(),
+      jsonParam(log.actor),
+      jsonParam(log.details || {}),
+      jsonParam(log.request || {})
+    ]
+  );
+}
+
+async function applyPostgresChanges(changes = {}) {
+  if (!pgPool) return;
+
+  const client = await pgPool.connect();
+
+  try {
+    await client.query('begin');
+
+    const deletedUserIds = changes.deletedUserIds || [];
+    const deletedLawyerIds = changes.deletedLawyerIds || [];
+    if (deletedUserIds.length > 0) {
+      await client.query('delete from users where id = any($1::text[])', [deletedUserIds.map(String)]);
+    }
+    if (deletedLawyerIds.length > 0) {
+      await client.query('delete from lawyers where id = any($1::text[])', [deletedLawyerIds.map(String)]);
+    }
+
+    for (const lawyer of changes.lawyers || []) await upsertLawyer(client, lawyer);
+    for (const user of changes.users || []) await upsertUser(client, user);
+    for (const update of changes.appointmentLawyerUpdates || []) {
+      await client.query(
+        'update appointments set lawyer_name = $2, lawyer_room = $3 where lawyer_id = $1',
+        [String(update.lawyerId), update.lawyerName || null, update.lawyerRoom || null]
+      );
+    }
+    for (const appointment of changes.appointments || []) await upsertAppointment(client, appointment);
+    for (const request of changes.paymentRequests || []) await upsertPaymentRequest(client, request);
+    for (const event of changes.appointmentHistory || []) await insertHistoryEvent(client, event);
+    for (const log of changes.auditLogs || []) await insertAuditLog(client, log);
+
+    await client.query('commit');
+  } catch (err) {
+    await client.query('rollback');
+    throw err;
+  } finally {
+    client.release();
+  }
+}
+
+async function replacePostgresData(data) {
   if (!pgPool) return;
 
   await ensurePostgresSchema();
@@ -461,119 +786,21 @@ async function savePostgresData(data) {
   const normalized = normalizeData(cloneJson(data));
 
   try {
+    // Substituicao integral reservada a restauracao explicita de backup.
     await client.query('begin');
     await client.query('delete from appointment_history');
     await client.query('delete from audit_logs');
+    await client.query('delete from payment_requests');
     await client.query('delete from appointments');
     await client.query('delete from users');
     await client.query('delete from lawyers');
 
-    for (const lawyer of normalized.lawyers) {
-      await client.query(
-        `
-          insert into lawyers (id, name, room, specialty, username, updated_at)
-          values ($1, $2, $3, $4, $5, now())
-        `,
-        [
-          String(lawyer.id),
-          String(lawyer.name || ''),
-          String(lawyer.room || ''),
-          lawyer.specialty || null,
-          lawyer.username || null
-        ]
-      );
-    }
-
-    for (const user of normalized.users) {
-      await client.query(
-        `
-          insert into users (id, username, password_hash, name, role, job_title, lawyer_id, must_change_password, updated_at)
-          values ($1, $2, $3, $4, $5, $6, $7, $8, now())
-        `,
-        [
-          String(user.id),
-          String(user.username || ''),
-          String(user.passwordHash || ''),
-          String(user.name || ''),
-          String(user.role || 'recepcao'),
-          user.jobTitle || null,
-          user.lawyerId || null,
-          Boolean(user.mustChangePassword)
-        ]
-      );
-    }
-
-    for (const appointment of normalized.appointments) {
-      await client.query(
-        `
-          insert into appointments (
-            id, client_name, client_phone, notes, lawyer_id, lawyer_name, lawyer_room,
-            scheduled_date, scheduled_time, status, reception_requests, updated_by,
-            created_at, updated_at, called_at, started_at, finished_at, cancelled_at
-          )
-          values (
-            $1, $2, $3, $4, $5, $6, $7,
-            $8, $9, $10, $11::jsonb, $12::jsonb,
-            $13, $14, $15, $16, $17, $18
-          )
-        `,
-        [
-          String(appointment.id),
-          String(appointment.clientName || ''),
-          appointment.clientPhone || null,
-          appointment.notes || null,
-          appointment.lawyerId || null,
-          appointment.lawyerName || null,
-          appointment.lawyerRoom || null,
-          appointment.scheduledDate || null,
-          appointment.scheduledTime || null,
-          appointment.status || 'aguardando',
-          jsonParam(appointment.receptionRequests),
-          jsonParam(appointment.updatedBy),
-          dateParam(appointment.createdAt),
-          dateParam(appointment.updatedAt),
-          dateParam(appointment.calledAt),
-          dateParam(appointment.startedAt),
-          dateParam(appointment.finishedAt),
-          dateParam(appointment.cancelledAt)
-        ]
-      );
-    }
-
-    for (const event of normalized.appointmentHistory) {
-      await client.query(
-        `
-          insert into appointment_history (id, appointment_id, type, created_at, actor, appointment, details)
-          values ($1, $2, $3, $4, $5::jsonb, $6::jsonb, $7::jsonb)
-        `,
-        [
-          String(event.id),
-          event.appointmentId || null,
-          String(event.type || ''),
-          dateParam(event.createdAt) || new Date(),
-          jsonParam(event.actor),
-          jsonParam(event.appointment),
-          jsonParam(event.details || {})
-        ]
-      );
-    }
-
-    for (const log of normalized.auditLogs) {
-      await client.query(
-        `
-          insert into audit_logs (id, action, created_at, actor, details, request)
-          values ($1, $2, $3, $4::jsonb, $5::jsonb, $6::jsonb)
-        `,
-        [
-          String(log.id),
-          String(log.action || ''),
-          dateParam(log.createdAt) || new Date(),
-          jsonParam(log.actor),
-          jsonParam(log.details || {}),
-          jsonParam(log.request || {})
-        ]
-      );
-    }
+    for (const lawyer of normalized.lawyers) await upsertLawyer(client, lawyer);
+    for (const user of normalized.users) await upsertUser(client, user);
+    for (const appointment of normalized.appointments) await upsertAppointment(client, appointment);
+    for (const request of normalized.paymentRequests) await upsertPaymentRequest(client, request);
+    for (const event of normalized.appointmentHistory) await insertHistoryEvent(client, event);
+    for (const log of normalized.auditLogs) await insertAuditLog(client, log);
 
     await client.query('commit');
   } catch (err) {
@@ -595,15 +822,41 @@ async function loadData() {
   }
 }
 
-function saveData(data) {
+let postgresWriteQueue = Promise.resolve();
+
+function queuePostgresOperation(operation) {
+  const queuedOperation = postgresWriteQueue.then(operation);
+
+  postgresWriteQueue = queuedOperation.catch(err => {
+    console.error('Erro ao salvar alteracoes no PostgreSQL/Supabase:', err);
+  });
+
+  return queuedOperation;
+}
+
+function queuePostgresChanges(changes) {
+  const snapshot = cloneJson(changes || {});
+  return queuePostgresOperation(() => applyPostgresChanges(snapshot));
+}
+
+function queuePostgresReplacement(data) {
+  const snapshot = cloneJson(data);
+  return queuePostgresOperation(() => replacePostgresData(snapshot));
+}
+
+function saveData(data, changes) {
   if (!pgPool) {
     saveJsonData(data);
-    return;
+    return Promise.resolve();
   }
 
-  savePostgresData(data).catch(err => {
-    console.error('Erro ao salvar dados no PostgreSQL/Supabase:', err);
-  });
+  if (!changes) {
+    const error = new Error('Alteracoes incrementais nao informadas para a persistencia PostgreSQL.');
+    console.error(error.message);
+    return Promise.reject(error);
+  }
+
+  return queuePostgresChanges(changes);
 }
 
 let db = makeDefaultData();
@@ -650,6 +903,62 @@ function getAppointmentSnapshot(appointment) {
     status: appointment.status || '',
     notes: appointment.notes || ''
   };
+}
+
+function getPaymentRequestSnapshot(request, session = null) {
+  if (!request) return null;
+
+  const snapshot = {
+    id: request.id,
+    processNumber: request.processNumber || '',
+    clientName: request.clientName || '',
+    notes: request.notes || '',
+    status: request.status || 'solicitada',
+    lawyerId: request.lawyerId || '',
+    lawyerName: request.lawyerName || '',
+    requestedBy: request.requestedBy || null,
+    requestedAt: request.requestedAt || null,
+    guideText: request.guideText || '',
+    guideLink: request.guideLink || '',
+    guideAmount: request.guideAmount || '',
+    guideDueDate: request.guideDueDate || '',
+    guideGeneratedBy: request.guideGeneratedBy || null,
+    guideGeneratedAt: request.guideGeneratedAt || null,
+    updatedAt: request.updatedAt || null
+  };
+
+  if (!session || session.role !== 'contadora') {
+    snapshot.paymentReceiptText = request.paymentReceiptText || '';
+    snapshot.paymentReceiptLink = request.paymentReceiptLink || '';
+    snapshot.paidBy = request.paidBy || null;
+    snapshot.paidAt = request.paidAt || null;
+  }
+
+  return snapshot;
+}
+
+function visiblePaymentRequestsForSession(session) {
+  if (!session) return [];
+  const source = Array.isArray(db.paymentRequests) ? db.paymentRequests : [];
+  let visible = [];
+
+  if (session.role === 'advogado') {
+    visible = source.filter(item => item.lawyerId === session.lawyerId);
+  } else if (['admin', 'contadora', 'gerente'].includes(session.role)) {
+    visible = source;
+  }
+
+  return visible
+    .map(item => getPaymentRequestSnapshot(item, session))
+    .sort((a, b) => new Date(b.updatedAt || b.requestedAt || 0) - new Date(a.updatedAt || a.requestedAt || 0));
+}
+
+function emitPaymentRequestsUpdated() {
+  io.sockets.sockets.forEach(socket => {
+    if (socket.data.session) {
+      socket.emit('payment_requests_updated', visiblePaymentRequestsForSession(socket.data.session));
+    }
+  });
 }
 
 function addHistoryEvent(type, appointment, session, details = {}) {
@@ -896,6 +1205,17 @@ function getCollectionItemKey(collection, item) {
     ].join('|');
   }
 
+  if (collection === 'paymentRequests') {
+    return item.id
+      ? `id:${String(item.id)}`
+      : [
+          'payment_request',
+          String(item.processNumber || '').trim().toLowerCase(),
+          String(item.lawyerId || '').trim(),
+          String(item.requestedAt || '').trim()
+        ].join('|');
+  }
+
   if (collection === 'appointmentHistory') {
     return [
       'history',
@@ -941,6 +1261,10 @@ function getAlternateCollectionKeys(collection, item) {
     keys.push(`slot:${String(item.lawyerId)}|${String(item.scheduledDate)}|${String(item.scheduledTime)}`);
   }
 
+  if (collection === 'paymentRequests' && item.processNumber && item.lawyerId && item.requestedAt) {
+    keys.push(`request:${String(item.processNumber).trim().toLowerCase()}|${String(item.lawyerId)}|${String(item.requestedAt)}`);
+  }
+
   return keys.filter(Boolean);
 }
 
@@ -970,6 +1294,7 @@ function makeBackupPayload() {
     lawyers: dedupeCollection('lawyers', db.lawyers),
     users: dedupeCollection('users', db.users),
     appointments: dedupeCollection('appointments', db.appointments),
+    paymentRequests: dedupeCollection('paymentRequests', db.paymentRequests),
     appointmentHistory: dedupeCollection('appointmentHistory', db.appointmentHistory),
     auditLogs: dedupeCollection('auditLogs', db.auditLogs)
   };
@@ -983,6 +1308,7 @@ function makeBackupPayload() {
       lawyers: data.lawyers.length,
       users: data.users.length,
       appointments: data.appointments.length,
+      paymentRequests: data.paymentRequests.length,
       appointmentHistory: data.appointmentHistory.length,
       auditLogs: data.auditLogs.length
     },
@@ -1002,6 +1328,7 @@ function readBackupData(payload) {
     lawyers: dedupeCollection('lawyers', data.lawyers),
     users: dedupeCollection('users', data.users),
     appointments: dedupeCollection('appointments', data.appointments),
+    paymentRequests: dedupeCollection('paymentRequests', data.paymentRequests),
     appointmentHistory: dedupeCollection('appointmentHistory', data.appointmentHistory),
     auditLogs: dedupeCollection('auditLogs', data.auditLogs)
   };
@@ -1070,6 +1397,7 @@ function summarizeBackupImport(backupData) {
     lawyers: summarizeCollectionMerge('lawyers', backupData.lawyers),
     users: summarizeCollectionMerge('users', backupData.users),
     appointments: summarizeCollectionMerge('appointments', backupData.appointments),
+    paymentRequests: summarizeCollectionMerge('paymentRequests', backupData.paymentRequests),
     appointmentHistory: summarizeCollectionMerge('appointmentHistory', backupData.appointmentHistory),
     auditLogs: summarizeCollectionMerge('auditLogs', backupData.auditLogs)
   };
@@ -1080,6 +1408,7 @@ function getBackupCounts(backupData) {
     lawyers: backupData.lawyers.length,
     users: backupData.users.length,
     appointments: backupData.appointments.length,
+    paymentRequests: backupData.paymentRequests.length,
     appointmentHistory: backupData.appointmentHistory.length,
     auditLogs: backupData.auditLogs.length
   };
@@ -1155,9 +1484,9 @@ function scheduleAutoBackups() {
   setInterval(() => runAutoBackup('scheduled'), intervalMs);
 }
 
-async function persistDataNow(data) {
+async function replaceAllDataFromBackup(data) {
   if (pgPool) {
-    await savePostgresData(data);
+    await queuePostgresReplacement(data);
     return;
   }
 
@@ -1208,6 +1537,7 @@ app.get('/api/health', async (req, res) => {
       lawyers: Array.isArray(db.lawyers) ? db.lawyers.length : 0,
       users: Array.isArray(db.users) ? db.users.length : 0,
       appointments: Array.isArray(db.appointments) ? db.appointments.length : 0,
+      paymentRequests: Array.isArray(db.paymentRequests) ? db.paymentRequests.length : 0,
       appointmentHistory: Array.isArray(db.appointmentHistory) ? db.appointmentHistory.length : 0,
       auditLogs: Array.isArray(db.auditLogs) ? db.auditLogs.length : 0
     }
@@ -1283,7 +1613,7 @@ app.post('/api/auth/recover-admin-password', recoveryLimiter, async (req, res) =
 
   admin.passwordHash = hashPassword(temporaryPassword);
   admin.mustChangePassword = true;
-  addAuditLog('auth.admin_password_recovered', {
+  const auditLog = addAuditLog('auth.admin_password_recovered', {
     userId: admin.id,
     username: admin.username,
     name: admin.name,
@@ -1295,7 +1625,7 @@ app.post('/api/auth/recover-admin-password', recoveryLimiter, async (req, res) =
 
   try {
     if (pgPool) {
-      await savePostgresData(db);
+      await queuePostgresChanges({ users: [admin], auditLogs: [auditLog] });
     } else {
       saveJsonData(db);
     }
@@ -1329,7 +1659,7 @@ app.post('/api/auth/change-password', authLimiter, (req, res) => {
 
   user.passwordHash = hashPassword(newPassword);
   user.mustChangePassword = false;
-  addAuditLog('auth.password_changed', {
+  const auditLog = addAuditLog('auth.password_changed', {
     userId: user.id,
     username: user.username,
     name: user.name,
@@ -1338,7 +1668,7 @@ app.post('/api/auth/change-password', authLimiter, (req, res) => {
     targetUserId: user.id,
     targetUsername: user.username
   }, req);
-  saveData(db);
+  saveData(db, { users: [user], auditLogs: [auditLog] });
 
   res.json({
     success: true,
@@ -1362,8 +1692,8 @@ app.get('/api/admin/backup', requireRole('admin'), requireCriticalAdmin, (req, r
   const payload = makeBackupPayload();
   const date = payload.exportedAt.slice(0, 10);
   const filename = `backup_cob_advogados_${date}.json`;
-  addAuditLog('backup.exported', req.session, { filename, counts: payload.counts }, req);
-  saveData(db);
+  const auditLog = addAuditLog('backup.exported', req.session, { filename, counts: payload.counts }, req);
+  saveData(db, { auditLogs: [auditLog] });
 
   res.setHeader('Content-Type', 'application/json; charset=utf-8');
   res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
@@ -1399,6 +1729,7 @@ app.post('/api/admin/backup/restore', requireRole('admin'), requireCriticalAdmin
     lawyers: mergeCollection('lawyers', backupData.lawyers),
     users: mergeCollection('users', backupData.users),
     appointments: mergeCollection('appointments', backupData.appointments),
+    paymentRequests: mergeCollection('paymentRequests', backupData.paymentRequests),
     appointmentHistory: mergeCollection('appointmentHistory', backupData.appointmentHistory),
     auditLogs: mergeCollection('auditLogs', backupData.auditLogs)
   };
@@ -1407,7 +1738,7 @@ app.post('/api/admin/backup/restore', requireRole('admin'), requireCriticalAdmin
   addAuditLog('backup.restored', req.session, { summary, counts: getBackupCounts(backupData) }, req);
 
   try {
-    await persistDataNow(db);
+    await replaceAllDataFromBackup(db);
   } catch (err) {
     console.error('Erro ao restaurar backup:', err);
     return res.status(500).json({ error: 'Erro ao salvar os dados restaurados.' });
@@ -1454,7 +1785,7 @@ app.post('/api/admin/users', requireRole('admin'), (req, res) => {
   const cleanName = String(name || '').trim();
   const cleanUsername = String(username || '').trim();
   const cleanRole = String(role || '').trim();
-  const allowedRoles = new Set(['admin', 'recepcao']);
+  const allowedRoles = new Set(['admin', 'recepcao', 'contadora', 'gerente']);
 
   if (!cleanName || !cleanUsername || !cleanRole) {
     return res.status(400).json({ error: 'Nome, usuario e perfil de acesso sao obrigatorios.' });
@@ -1487,7 +1818,7 @@ app.post('/api/admin/users', requireRole('admin'), (req, res) => {
   };
 
   db.users.push(newUser);
-  addAuditLog('admin.user_created', req.session, {
+  const auditLog = addAuditLog('admin.user_created', req.session, {
     user: {
       id: newUser.id,
       username: newUser.username,
@@ -1496,7 +1827,7 @@ app.post('/api/admin/users', requireRole('admin'), (req, res) => {
       jobTitle: newUser.jobTitle
     }
   }, req);
-  saveData(db);
+  saveData(db, { users: [newUser], auditLogs: [auditLog] });
 
   res.json({
     success: true,
@@ -1552,6 +1883,9 @@ app.put('/api/admin/users/:id', requireRole('admin'), (req, res) => {
 
   user.jobTitle = String(jobTitle || '').trim() || defaultJobTitleForRole(user.role);
 
+  const changedLawyers = [];
+  const appointmentLawyerUpdates = [];
+
   if (user.lawyerId) {
     const lawyer = db.lawyers.find(item => item.id === user.lawyerId);
     if (lawyer) {
@@ -1566,10 +1900,16 @@ app.put('/api/admin/users/:id', requireRole('admin'), (req, res) => {
           appointment.lawyerRoom = lawyer.room;
         }
       });
+      changedLawyers.push(lawyer);
+      appointmentLawyerUpdates.push({
+        lawyerId: lawyer.id,
+        lawyerName: lawyer.name,
+        lawyerRoom: lawyer.room
+      });
     }
   }
 
-  addAuditLog('admin.user_updated', req.session, {
+  const auditLog = addAuditLog('admin.user_updated', req.session, {
     targetUserId: user.id,
     before,
     after: {
@@ -1584,7 +1924,12 @@ app.put('/api/admin/users/:id', requireRole('admin'), (req, res) => {
     passwordChanged: Boolean(cleanPassword)
   }, req);
 
-  saveData(db);
+  saveData(db, {
+    users: [user],
+    lawyers: changedLawyers,
+    appointmentLawyerUpdates,
+    auditLogs: [auditLog]
+  });
   emitLawyersUpdated();
   emitQueueUpdated();
 
@@ -1618,13 +1963,184 @@ app.post('/api/admin/reset-password', requireRole('admin'), requireCriticalAdmin
 
   user.passwordHash = hashPassword(newPassword);
   user.mustChangePassword = true;
-  addAuditLog('admin.password_reset', req.session, {
+  const auditLog = addAuditLog('admin.password_reset', req.session, {
     targetUserId: user.id,
     targetUsername: user.username
   }, req);
-  saveData(db);
+  saveData(db, { users: [user], auditLogs: [auditLog] });
 
   res.json({ success: true, message: `Senha do usuario ${user.username} redefinida com sucesso.` });
+});
+
+app.get('/api/payment-requests', requireRole('admin', 'advogado', 'contadora', 'gerente'), (req, res) => {
+  res.json(visiblePaymentRequestsForSession(req.session));
+});
+
+app.post('/api/payment-requests', requireRole('admin', 'advogado'), (req, res) => {
+  const { processNumber, clientName, notes, lawyerId } = req.body || {};
+  const cleanProcessNumber = String(processNumber || '').trim();
+  const cleanClientName = String(clientName || '').trim();
+  const cleanNotes = String(notes || '').trim().slice(0, 1200);
+
+  if (!cleanProcessNumber) {
+    return res.status(400).json({ error: 'Numero do processo e obrigatorio.' });
+  }
+
+  let lawyer = null;
+  if (req.session.role === 'advogado') {
+    lawyer = db.lawyers.find(item => item.id === req.session.lawyerId);
+  } else if (lawyerId) {
+    lawyer = db.lawyers.find(item => item.id === String(lawyerId));
+  }
+
+  if (!lawyer) {
+    return res.status(400).json({ error: 'Advogado solicitante nao encontrado.' });
+  }
+
+  const now = new Date().toISOString();
+  const request = {
+    id: `pay_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+    processNumber: cleanProcessNumber,
+    clientName: cleanClientName,
+    notes: cleanNotes,
+    status: 'solicitada',
+    lawyerId: lawyer.id,
+    lawyerName: lawyer.name,
+    requestedBy: getActorFromSession(req.session),
+    requestedAt: now,
+    guideText: '',
+    guideLink: '',
+    guideAmount: '',
+    guideDueDate: '',
+    guideGeneratedBy: null,
+    guideGeneratedAt: null,
+    paymentReceiptText: '',
+    paymentReceiptLink: '',
+    paidBy: null,
+    paidAt: null,
+    updatedAt: now
+  };
+
+  if (!Array.isArray(db.paymentRequests)) db.paymentRequests = [];
+  db.paymentRequests.unshift(request);
+
+  const auditLog = addAuditLog('payment_request.created', req.session, {
+    requestId: request.id,
+    processNumber: request.processNumber,
+    lawyerName: request.lawyerName
+  }, req);
+  saveData(db, { paymentRequests: [request], auditLogs: [auditLog] });
+
+  emitPaymentRequestsUpdated();
+  io.to('contadora_room').emit('payment_request_notice', {
+    type: 'new_request',
+    request: getPaymentRequestSnapshot(request, { role: 'contadora' }),
+    message: `Nova solicitacao de guia do processo ${request.processNumber}.`
+  });
+  io.to('gerente_room').emit('payment_request_notice', {
+    type: 'new_request',
+    request: getPaymentRequestSnapshot(request, { role: 'gerente' }),
+    message: `Novo pedido de pagamento/guia do processo ${request.processNumber}.`
+  });
+
+  res.json({
+    success: true,
+    request: getPaymentRequestSnapshot(request, req.session)
+  });
+});
+
+app.put('/api/payment-requests/:id/guide', requireRole('admin', 'contadora'), (req, res) => {
+  const request = (db.paymentRequests || []).find(item => item.id === req.params.id);
+  if (!request) {
+    return res.status(404).json({ error: 'Solicitacao nao encontrada.' });
+  }
+
+  if (request.status === 'pago') {
+    return res.status(400).json({ error: 'Esta solicitacao ja foi paga e nao pode ter a guia alterada.' });
+  }
+
+  const guideText = String(req.body?.guideText || '').trim().slice(0, 2000);
+  const guideLink = String(req.body?.guideLink || '').trim().slice(0, 1000);
+  const guideAmount = String(req.body?.guideAmount || '').trim().slice(0, 80);
+  const guideDueDate = String(req.body?.guideDueDate || '').trim().slice(0, 10);
+
+  if (!guideText && !guideLink) {
+    return res.status(400).json({ error: 'Informe os dados da guia ou um link para a guia.' });
+  }
+
+  const now = new Date().toISOString();
+  request.status = 'guia_gerada';
+  request.guideText = guideText;
+  request.guideLink = guideLink;
+  request.guideAmount = guideAmount;
+  request.guideDueDate = guideDueDate;
+  request.guideGeneratedBy = getActorFromSession(req.session);
+  request.guideGeneratedAt = now;
+  request.updatedAt = now;
+
+  const auditLog = addAuditLog('payment_request.guide_generated', req.session, {
+    requestId: request.id,
+    processNumber: request.processNumber,
+    lawyerName: request.lawyerName
+  }, req);
+  saveData(db, { paymentRequests: [request], auditLogs: [auditLog] });
+
+  emitPaymentRequestsUpdated();
+  io.to('gerente_room').emit('payment_request_notice', {
+    type: 'guide_ready',
+    request: getPaymentRequestSnapshot(request, { role: 'gerente' }),
+    message: `Guia pronta para pagamento no processo ${request.processNumber}.`
+  });
+
+  res.json({
+    success: true,
+    request: getPaymentRequestSnapshot(request, req.session)
+  });
+});
+
+app.put('/api/payment-requests/:id/payment', requireRole('admin', 'gerente'), (req, res) => {
+  const request = (db.paymentRequests || []).find(item => item.id === req.params.id);
+  if (!request) {
+    return res.status(404).json({ error: 'Solicitacao nao encontrada.' });
+  }
+
+  if (request.status !== 'guia_gerada') {
+    return res.status(400).json({ error: 'A guia precisa estar gerada antes do pagamento.' });
+  }
+
+  const paymentReceiptText = String(req.body?.paymentReceiptText || '').trim().slice(0, 2000);
+  const paymentReceiptLink = String(req.body?.paymentReceiptLink || '').trim().slice(0, 1000);
+
+  if (!paymentReceiptText && !paymentReceiptLink) {
+    return res.status(400).json({ error: 'Informe os dados do comprovante ou um link para o comprovante.' });
+  }
+
+  const now = new Date().toISOString();
+  request.status = 'pago';
+  request.paymentReceiptText = paymentReceiptText;
+  request.paymentReceiptLink = paymentReceiptLink;
+  request.paidBy = getActorFromSession(req.session);
+  request.paidAt = now;
+  request.updatedAt = now;
+
+  const auditLog = addAuditLog('payment_request.paid', req.session, {
+    requestId: request.id,
+    processNumber: request.processNumber,
+    lawyerName: request.lawyerName
+  }, req);
+  saveData(db, { paymentRequests: [request], auditLogs: [auditLog] });
+
+  emitPaymentRequestsUpdated();
+  io.to(`lawyer_${request.lawyerId}`).emit('payment_request_notice', {
+    type: 'paid',
+    request: getPaymentRequestSnapshot(request, { role: 'advogado' }),
+    message: `Guia paga no processo ${request.processNumber}. O comprovante ja esta disponivel.`
+  });
+
+  res.json({
+    success: true,
+    request: getPaymentRequestSnapshot(request, req.session)
+  });
 });
 
 app.get('/api/lawyers', requireRole('admin', 'recepcao', 'advogado'), (req, res) => {
@@ -1670,11 +2186,11 @@ app.post('/api/lawyers', requireRole('admin'), (req, res) => {
 
   db.lawyers.push(newLawyer);
   db.users.push(newUser);
-  addAuditLog('admin.lawyer_created', req.session, {
+  const auditLog = addAuditLog('admin.lawyer_created', req.session, {
     lawyer: newLawyer,
     user: { id: newUser.id, username: newUser.username, role: newUser.role }
   }, req);
-  saveData(db);
+  saveData(db, { lawyers: [newLawyer], users: [newUser], auditLogs: [auditLog] });
 
   emitLawyersUpdated();
   res.json({ lawyer: newLawyer, user: { username: newUser.username } });
@@ -1697,11 +2213,15 @@ app.delete('/api/lawyers/:id', requireRole('admin'), requireCriticalAdmin, (req,
 
   db.lawyers = db.lawyers.filter(item => item.id !== id);
   db.users = db.users.filter(item => item.lawyerId !== id);
-  addAuditLog('admin.lawyer_deleted', req.session, {
+  const auditLog = addAuditLog('admin.lawyer_deleted', req.session, {
     lawyer: removedLawyer,
     users: removedUsers
   }, req);
-  saveData(db);
+  saveData(db, {
+    deletedUserIds: removedUsers.map(user => user.id),
+    deletedLawyerIds: [removedLawyer.id],
+    auditLogs: [auditLog]
+  });
   emitLawyersUpdated();
   emitQueueUpdated();
   res.json({ success: true });
@@ -1766,19 +2286,23 @@ app.put('/api/appointments/:id', requireRole('admin', 'recepcao'), (req, res) =>
   const after = getAppointmentSnapshot(appointment);
   const changedFields = Object.keys(after).filter(key => before[key] !== after[key]);
 
-  addHistoryEvent('appointment_updated', appointment, req.session, {
+  const historyEvent = addHistoryEvent('appointment_updated', appointment, req.session, {
     changedFields,
     before,
     after
   });
-  addAuditLog('appointment.updated', req.session, {
+  const auditLog = addAuditLog('appointment.updated', req.session, {
     appointmentId: appointment.id,
     changedFields,
     before,
     after
   }, req);
 
-  saveData(db);
+  saveData(db, {
+    appointments: [appointment],
+    appointmentHistory: [historyEvent],
+    auditLogs: [auditLog]
+  });
   emitQueueUpdated();
 
   res.json({
@@ -1794,7 +2318,8 @@ io.on('connection', socket => {
   if (socket.data.session) {
     socket.emit('init_data', {
       lawyers: db.lawyers,
-      appointments: visibleAppointmentsForSession(socket.data.session)
+      appointments: visibleAppointmentsForSession(socket.data.session),
+      paymentRequests: visiblePaymentRequestsForSession(socket.data.session)
     });
   }
 
@@ -1813,6 +2338,14 @@ io.on('connection', socket => {
     const session = requireSocketRole(socket, ['admin', 'recepcao']);
     if (!session) return;
     socket.join('reception_room');
+  });
+
+  socket.on('register_finance_room', () => {
+    const session = requireSocketRole(socket, ['admin', 'contadora', 'gerente']);
+    if (!session) return;
+
+    if (session.role === 'admin' || session.role === 'contadora') socket.join('contadora_room');
+    if (session.role === 'admin' || session.role === 'gerente') socket.join('gerente_room');
   });
 
   socket.on('register_tv_panel', () => {
@@ -1880,13 +2413,17 @@ io.on('connection', socket => {
     }
 
     db.appointments.unshift(newAppointment);
-    addHistoryEvent('appointment_created', newAppointment, session, {
+    const historyEvent = addHistoryEvent('appointment_created', newAppointment, session, {
       message: 'Agendamento criado.'
     });
-    addAuditLog('appointment.created', session, {
+    const auditLog = addAuditLog('appointment.created', session, {
       appointment: getAppointmentSnapshot(newAppointment)
     });
-    saveData(db);
+    saveData(db, {
+      appointments: [newAppointment],
+      appointmentHistory: [historyEvent],
+      auditLogs: [auditLog]
+    });
 
     emitQueueUpdated();
 
@@ -1906,15 +2443,19 @@ io.on('connection', socket => {
     if (!appointment) return;
 
     appointment.calledAt = new Date().toISOString();
-    addHistoryEvent('client_called', appointment, session, {
+    const historyEvent = addHistoryEvent('client_called', appointment, session, {
       calledAt: appointment.calledAt
     });
-    addAuditLog('appointment.client_called', session, {
+    const auditLog = addAuditLog('appointment.client_called', session, {
       appointmentId: appointment.id,
       clientName: appointment.clientName,
       lawyerName: appointment.lawyerName
     });
-    saveData(db);
+    saveData(db, {
+      appointments: [appointment],
+      appointmentHistory: [historyEvent],
+      auditLogs: [auditLog]
+    });
 
     emitQueueUpdated();
 
@@ -1952,15 +2493,19 @@ io.on('connection', socket => {
 
     appointment.status = 'em_atendimento';
     appointment.startedAt = new Date().toISOString();
-    addHistoryEvent('consultation_started', appointment, session, {
+    const historyEvent = addHistoryEvent('consultation_started', appointment, session, {
       startedAt: appointment.startedAt
     });
-    addAuditLog('appointment.consultation_started', session, {
+    const auditLog = addAuditLog('appointment.consultation_started', session, {
       appointmentId: appointment.id,
       clientName: appointment.clientName,
       lawyerName: appointment.lawyerName
     });
-    saveData(db);
+    saveData(db, {
+      appointments: [appointment],
+      appointmentHistory: [historyEvent],
+      auditLogs: [auditLog]
+    });
 
     emitQueueUpdated();
     io.to('reception_room').emit('consultation_started_notice', appointment);
@@ -1979,19 +2524,23 @@ io.on('connection', socket => {
     appointment.status = 'concluido';
     appointment.finishedAt = new Date().toISOString();
     appointment.receptionRequests = normalizeReceptionRequests(receptionRequests);
-    addHistoryEvent('consultation_finished', appointment, session, {
+    const historyEvent = addHistoryEvent('consultation_finished', appointment, session, {
       finishedByRole: finishedByRole || session.role,
       finishedAt: appointment.finishedAt,
       receptionRequests: appointment.receptionRequests
     });
-    addAuditLog('appointment.consultation_finished', session, {
+    const auditLog = addAuditLog('appointment.consultation_finished', session, {
       appointmentId: appointment.id,
       clientName: appointment.clientName,
       lawyerName: appointment.lawyerName,
       finishedByRole: finishedByRole || session.role,
       receptionRequests: appointment.receptionRequests
     });
-    saveData(db);
+    saveData(db, {
+      appointments: [appointment],
+      appointmentHistory: [historyEvent],
+      auditLogs: [auditLog]
+    });
 
     emitQueueUpdated();
 
@@ -2015,15 +2564,19 @@ io.on('connection', socket => {
     if (appointment) {
       appointment.status = 'cancelado';
       appointment.cancelledAt = new Date().toISOString();
-      addHistoryEvent('appointment_cancelled', appointment, session, {
+      const historyEvent = addHistoryEvent('appointment_cancelled', appointment, session, {
         cancelledAt: appointment.cancelledAt
       });
-      addAuditLog('appointment.cancelled', session, {
+      const auditLog = addAuditLog('appointment.cancelled', session, {
         appointmentId: appointment.id,
         clientName: appointment.clientName,
         lawyerName: appointment.lawyerName
       });
-      saveData(db);
+      saveData(db, {
+        appointments: [appointment],
+        appointmentHistory: [historyEvent],
+        auditLogs: [auditLog]
+      });
       emitQueueUpdated();
     }
   });
@@ -2034,23 +2587,30 @@ io.on('connection', socket => {
 
     const today = getBusinessDateString();
     let clearedCount = 0;
+    const changedAppointments = [];
+    const historyEvents = [];
     db.appointments.forEach(appointment => {
       const appointmentDate = appointment.scheduledDate || getBusinessDateString(new Date(appointment.createdAt));
       if (appointmentDate === today && appointment.status !== 'concluido' && appointment.status !== 'cancelado') {
         appointment.status = 'cancelado';
         appointment.cancelledAt = new Date().toISOString();
         clearedCount += 1;
-        addHistoryEvent('daily_queue_cleared', appointment, session, {
+        changedAppointments.push(appointment);
+        historyEvents.push(addHistoryEvent('daily_queue_cleared', appointment, session, {
           clearedDate: today
-        });
+        }));
       }
     });
 
-    addAuditLog('appointment.daily_queue_cleared', session, {
+    const auditLog = addAuditLog('appointment.daily_queue_cleared', session, {
       clearedDate: today,
       clearedCount
     });
-    saveData(db);
+    saveData(db, {
+      appointments: changedAppointments,
+      appointmentHistory: historyEvents,
+      auditLogs: [auditLog]
+    });
     emitQueueUpdated();
   });
 

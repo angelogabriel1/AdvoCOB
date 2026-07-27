@@ -40,6 +40,22 @@
       "mustChangePassword": true
     },
     {
+      "id": "u_contadora",
+      "username": "contadora",
+      "passwordHash": "8d969eef6ecad3c29a3a629280e686cf0c3f5d5a86aff3ca12020c923adc6c92",
+      "name": "Contadora",
+      "role": "contadora",
+      "mustChangePassword": true
+    },
+    {
+      "id": "u_gerente",
+      "username": "gerente",
+      "passwordHash": "8d969eef6ecad3c29a3a629280e686cf0c3f5d5a86aff3ca12020c923adc6c92",
+      "name": "Gerente",
+      "role": "gerente",
+      "mustChangePassword": true
+    },
+    {
       "id": "u_carlos",
       "username": "dr.carlos",
       "passwordHash": "8d969eef6ecad3c29a3a629280e686cf0c3f5d5a86aff3ca12020c923adc6c92",
@@ -68,5 +84,6 @@
     }
   ],
   "appointments": [],
+  "paymentRequests": [],
   "appointmentHistory": []
 }

@@ -22,6 +22,8 @@
       <a href="/" class="nav-btn">Início</a>
       <a href="/agenda.html" class="nav-btn">Agenda</a>
       <a href="/advogado.html" class="nav-btn active">Advogado</a>
+      <a href="/contadora.html" class="nav-btn">Contadora</a>
+      <a href="/gerente.html" class="nav-btn">Gerente</a>
     </div>
   </nav>
 
@@ -39,6 +41,36 @@
       <!-- Card de Cliente em Atendimento -->
       <div id="activeConsultationSection">
         <!-- Preenchido dinamicamente via JS -->
+      </div>
+
+      <div class="card" style="margin-bottom: 1.5rem;">
+        <div class="card-title">
+          <span>Solicitar Guia / Pagamento de Processo</span>
+        </div>
+        <form id="paymentRequestForm">
+          <div class="history-filters">
+            <div class="form-group">
+              <label for="paymentProcessNumber">Numero do Processo *</label>
+              <input type="text" id="paymentProcessNumber" class="form-control" placeholder="Ex: 0001234-56.2026.8.06.0001" required>
+            </div>
+            <div class="form-group">
+              <label for="paymentClientName">Cliente</label>
+              <input type="text" id="paymentClientName" class="form-control" placeholder="Nome do cliente">
+            </div>
+            <div class="form-group">
+              <label for="paymentNotes">Observacao</label>
+              <textarea id="paymentNotes" class="form-control" rows="2" maxlength="1200" placeholder="Detalhe a guia ou pagamento necessario"></textarea>
+            </div>
+          </div>
+          <button type="submit" class="btn btn-primary">Solicitar para Contadora e Gerente</button>
+        </form>
+
+        <div style="margin-top: 1.25rem;">
+          <div class="card-title" style="font-size: 1rem;">
+            <span>Minhas Solicitacoes</span>
+          </div>
+          <div id="lawyerPaymentRequests" style="display: flex; flex-direction: column; gap: 0.75rem;"></div>
+        </div>
       </div>
 
       <div class="grid-2" style="grid-template-columns: 1fr 1fr;">
@@ -147,6 +179,8 @@
       </form>
     </div>
   </div>
+
+  <div id="toastContainer" class="toast-container"></div>
 
   <script src="/js/advogado.js"></script>
 </body>

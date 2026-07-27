@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Contadora - Guias e Pagamentos</title>
+  <link rel="stylesheet" href="/css/style.css">
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="/js/theme-helper.js"></script>
+  <script src="/js/logo-helper.js"></script>
+  <script src="/js/audio-helper.js"></script>
+  <script src="/js/auth.js"></script>
+</head>
+<body>
+  <nav class="navbar">
+    <div id="cobBrandHeader"></div>
+    <div class="nav-links">
+      <div id="themeToggleContainer"></div>
+      <a href="/" class="nav-btn">Inicio</a>
+      <a href="/advogado.html" class="nav-btn">Advogado</a>
+      <a href="/contadora.html" class="nav-btn active">Contadora</a>
+      <a href="/gerente.html" class="nav-btn">Gerente</a>
+    </div>
+  </nav>
+
+  <div class="container">
+    <div class="page-header">
+      <div class="page-title">
+        <h1>Painel da Contadora</h1>
+        <p>Receba pedidos dos advogados e registre a guia para envio ao gerente.</p>
+      </div>
+      <button type="button" class="btn btn-secondary btn-sm" onclick="loadPaymentRequests()">Atualizar</button>
+    </div>
+
+    <div class="card">
+      <div class="card-title">
+        <span>Solicitacoes Pendentes de Guia</span>
+      </div>
+      <div id="pendingGuideRequests" style="display: flex; flex-direction: column; gap: 1rem;"></div>
+    </div>
+
+    <div class="card" style="margin-top: 1.5rem;">
+      <div class="card-title">
+        <span>Historico de Guias</span>
+      </div>
+      <div id="allGuideRequests" style="display: flex; flex-direction: column; gap: 0.75rem;"></div>
+    </div>
+  </div>
+
+  <div id="toastContainer" class="toast-container"></div>
+  <script src="/js/contadora.js"></script>
+</body>
+</html>
