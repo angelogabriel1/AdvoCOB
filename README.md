@@ -123,10 +123,21 @@ BACKUP_DIR=./data/backups
 
 ### Supabase
 
-Quando `DATABASE_URL` esta configurado, o app usa tabelas reais no Supabase/PostgreSQL: `users`, `lawyers`, `appointments`, `appointment_history` e `audit_logs`. O JSON local continua existindo apenas como fallback de desenvolvimento quando nao ha `DATABASE_URL`.
+Quando `DATABASE_URL` esta configurado, o app usa tabelas reais no Supabase/PostgreSQL: `users`, `lawyers`, `appointments`, `payment_requests`, `appointment_history` e `audit_logs`. O JSON local continua existindo apenas como fallback de desenvolvimento quando nao ha `DATABASE_URL`.
 
 Para criar/atualizar as tabelas no Supabase a partir do schema do projeto:
 
 ```bash
 npm run db:init
 ```
+
+Arquivos de guia usam um bucket privado do Supabase Storage. Configure no backend:
+
+```env
+SUPABASE_URL=https://seu-projeto.supabase.co
+SUPABASE_SECRET_KEY=sb_secret_...
+SUPABASE_GUIDES_BUCKET=advocob-guides
+GUIDE_FILE_MAX_MB=10
+```
+
+Em projetos antigos, `SUPABASE_SERVICE_ROLE_KEY` pode ser usada no lugar de `SUPABASE_SECRET_KEY`. A chave deve existir somente nas variaveis secretas do servidor.

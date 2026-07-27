@@ -85,6 +85,31 @@ body {
   align-items: center;
 }
 
+@media (max-width: 640px) {
+  .navbar {
+    align-items: stretch;
+    flex-direction: column;
+    gap: 0.75rem;
+    padding: 0.75rem 1rem;
+  }
+
+  .nav-links {
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    width: 100%;
+  }
+
+  .nav-btn {
+    flex: 0 0 auto;
+    padding: 0.45rem 0.7rem;
+  }
+
+  #navbarUserContainer {
+    flex: 0 0 auto;
+    flex-wrap: wrap;
+  }
+}
+
 .nav-btn {
   padding: 0.5rem 1rem;
   border-radius: var(--radius-sm);

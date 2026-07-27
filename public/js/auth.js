@@ -28,6 +28,30 @@ const Auth = {
     return fetch(url, { ...options, headers });
   },
 
+  async downloadFile(url, fileName = 'arquivo') {
+    const response = await this.authFetch(url);
+    if (!response.ok) {
+      let message = 'Nao foi possivel baixar o arquivo.';
+      try {
+        const data = await response.json();
+        if (data.error) message = data.error;
+      } catch (err) {
+        // A resposta pode nao ser JSON em falhas de infraestrutura.
+      }
+      throw new Error(message);
+    }
+
+    const blob = await response.blob();
+    const objectUrl = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = objectUrl;
+    link.download = fileName || 'arquivo';
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    setTimeout(() => URL.revokeObjectURL(objectUrl), 1000);
+  },
+
   createSocket() {
     const socket = io({
       auth: {

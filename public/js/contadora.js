@@ -83,12 +83,16 @@ function renderGuideForm(item) {
     <div style="border-top: 1px solid var(--border-color); margin-top: 0.9rem; padding-top: 0.9rem;">
       <div class="history-filters">
         <div class="form-group">
-          <label for="guideText_${item.id}">Dados da Guia *</label>
-          <textarea id="guideText_${item.id}" class="form-control" rows="2" maxlength="2000" placeholder="Linha digitavel, codigo de barras ou detalhes da guia">${escapeHtml(item.guideText || '')}</textarea>
+          <label for="guideFile_${item.id}">Arquivo da Guia</label>
+          <input id="guideFile_${item.id}" type="file" class="form-control" accept=".pdf,.jpg,.jpeg,.png,.webp,application/pdf,image/jpeg,image/png,image/webp">
         </div>
         <div class="form-group">
-          <label for="guideLink_${item.id}">Link da Guia</label>
+          <label for="guideLink_${item.id}">Link da Guia (alternativa)</label>
           <input id="guideLink_${item.id}" class="form-control" value="${escapeHtml(item.guideLink || '')}" placeholder="https://...">
+        </div>
+        <div class="form-group">
+          <label for="guideText_${item.id}">Dados complementares</label>
+          <textarea id="guideText_${item.id}" class="form-control" rows="2" maxlength="2000" placeholder="Linha digitavel, codigo de barras ou detalhes da guia">${escapeHtml(item.guideText || '')}</textarea>
         </div>
         <div class="form-group">
           <label for="guideAmount_${item.id}">Valor</label>
@@ -99,27 +103,40 @@ function renderGuideForm(item) {
           <input id="guideDueDate_${item.id}" type="date" class="form-control" value="${escapeHtml(item.guideDueDate || '')}">
         </div>
       </div>
-      <button type="button" class="btn btn-primary" onclick="submitGuide('${item.id}')">Enviar Guia ao Gerente</button>
+      <button id="submitGuide_${item.id}" type="button" class="btn btn-primary" onclick="submitGuide('${item.id}')">Enviar Guia ao Gerente</button>
     </div>
   `;
 }
 
 async function submitGuide(requestId) {
+  const guideFile = document.getElementById(`guideFile_${requestId}`).files[0] || null;
   const guideText = document.getElementById(`guideText_${requestId}`).value.trim();
   const guideLink = document.getElementById(`guideLink_${requestId}`).value.trim();
   const guideAmount = document.getElementById(`guideAmount_${requestId}`).value.trim();
   const guideDueDate = document.getElementById(`guideDueDate_${requestId}`).value;
+  const submitButton = document.getElementById(`submitGuide_${requestId}`);
 
-  if (!guideText && !guideLink) {
-    alert('Informe os dados da guia ou um link.');
+  if (!guideFile && !guideLink) {
+    alert('Anexe o arquivo da guia ou informe um link.');
     return;
   }
 
+  const formData = new FormData();
+  if (guideFile) formData.append('guideFile', guideFile);
+  formData.append('guideText', guideText);
+  formData.append('guideLink', guideLink);
+  formData.append('guideAmount', guideAmount);
+  formData.append('guideDueDate', guideDueDate);
+
   try {
+    if (submitButton) {
+      submitButton.disabled = true;
+      submitButton.textContent = 'Enviando...';
+    }
+
     const res = await Auth.authFetch(`/api/payment-requests/${requestId}/guide`, {
       method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ guideText, guideLink, guideAmount, guideDueDate })
+      body: formData
     });
     const data = await res.json();
     if (!res.ok) {
@@ -133,11 +150,16 @@ async function submitGuide(requestId) {
   } catch (err) {
     console.error(err);
     alert('Erro ao se comunicar com o servidor.');
+  } finally {
+    if (submitButton && document.body.contains(submitButton)) {
+      submitButton.disabled = false;
+      submitButton.textContent = 'Enviar Guia ao Gerente';
+    }
   }
 }
 
 function renderGuideSummary(item) {
-  if (!item.guideText && !item.guideLink && !item.guideAmount && !item.guideDueDate) return '';
+  if (!item.guideText && !item.guideLink && !item.guideFileName && !item.guideAmount && !item.guideDueDate) return '';
 
   return `
     <div style="border-top: 1px solid var(--border-color); margin-top: 0.75rem; padding-top: 0.75rem; font-size: 0.82rem;">
@@ -145,9 +167,30 @@ function renderGuideSummary(item) {
       ${item.guideAmount ? `<span style="color: var(--text-muted); margin-left: 0.4rem;">Valor: ${escapeHtml(item.guideAmount)}</span>` : ''}
       ${item.guideDueDate ? `<span style="color: var(--text-muted); margin-left: 0.4rem;">Vencimento: ${formatDateBR(item.guideDueDate)}</span>` : ''}
       ${item.guideText ? `<div style="color: var(--text-muted); margin-top: 0.25rem;">${escapeHtml(item.guideText)}</div>` : ''}
+      ${renderGuideFileButton(item)}
       ${renderSafeLink(item.guideLink, 'Abrir guia')}
     </div>
   `;
+}
+
+function renderGuideFileButton(item) {
+  if (!item.guideFileUrl || !item.guideFileName) return '';
+  return `
+    <div style="color: var(--text-muted); margin-top: 0.35rem; overflow-wrap: anywhere;">${escapeHtml(item.guideFileName)}</div>
+    <button type="button" class="btn btn-secondary btn-sm" style="margin-top: 0.5rem;" onclick="downloadGuideFile('${item.id}')">Baixar arquivo</button>
+  `;
+}
+
+async function downloadGuideFile(requestId) {
+  const item = paymentRequests.find(request => request.id === requestId);
+  if (!item || !item.guideFileUrl) return;
+
+  try {
+    await Auth.downloadFile(item.guideFileUrl, item.guideFileName || 'guia');
+  } catch (err) {
+    console.error(err);
+    showToast(err.message || 'Erro ao baixar a guia.', 'danger');
+  }
 }
 
 function renderStatusBadge(status) {

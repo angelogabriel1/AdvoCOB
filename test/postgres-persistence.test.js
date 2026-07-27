@@ -45,3 +45,23 @@ test('substituicao integral fica restrita a restauracao de backup', () => {
   assert.equal(queuedReplacementCalls.length, 2);
   assert.equal(backupReplacementCalls.length, 2);
 });
+
+test('envio de guia aceita arquivo ou link e persiste apenas metadados', () => {
+  const guideRouteSource = sourceBetween(
+    "app.put('/api/payment-requests/:id/guide'",
+    "app.put('/api/payment-requests/:id/payment'"
+  );
+  const snapshotSource = sourceBetween(
+    'function getPaymentRequestSnapshot',
+    'function visiblePaymentRequestsForSession'
+  );
+
+  assert.match(guideRouteSource, /parseGuideUpload/);
+  assert.match(guideRouteSource, /!req\.file && !guideLink/);
+  assert.match(guideRouteSource, /uploadGuideFile\(request\.id, req\.file\)/);
+  assert.match(guideRouteSource, /await saveData/);
+  assert.match(serverSource, /guide_file_path = excluded\.guide_file_path/);
+  assert.match(snapshotSource, /snapshot\.guideFileUrl\s*=/);
+  assert.match(snapshotSource, /session\.role !== 'advogado' \|\| request\.status === 'pago'/);
+  assert.doesNotMatch(snapshotSource, /guideFilePath\s*:/);
+});

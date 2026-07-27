@@ -7,6 +7,7 @@ yarn-error.log*
 # Banco de dados local e dados sensíveis de clientes
 data/database.json
 data/backups/
+data/.dev-*/
 data/*.db
 data/*.sqlite
 data/*.txt

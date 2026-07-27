@@ -12,7 +12,9 @@ const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
+const multer = require('multer');
 const { Pool } = require('pg');
+const { createClient } = require('@supabase/supabase-js');
 
 const app = express();
 const server = http.createServer(app);
@@ -26,6 +28,11 @@ const PASSWORD_ROUNDS = Number(process.env.PASSWORD_ROUNDS || 12);
 const ALLOWED_ORIGIN = process.env.ALLOWED_ORIGIN || '*';
 const PANEL_TOKEN = process.env.PANEL_TOKEN || '';
 const DATABASE_URL = process.env.DATABASE_URL || '';
+const SUPABASE_URL = process.env.SUPABASE_URL || '';
+const SUPABASE_STORAGE_KEY = process.env.SUPABASE_SECRET_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY || '';
+const SUPABASE_GUIDES_BUCKET = process.env.SUPABASE_GUIDES_BUCKET || 'advocob-guides';
+const GUIDE_FILE_MAX_MB = Math.max(1, Number(process.env.GUIDE_FILE_MAX_MB || 10));
+const GUIDE_FILE_MAX_BYTES = GUIDE_FILE_MAX_MB * 1024 * 1024;
 const ADMIN_RECOVERY_CODE = process.env.ADMIN_RECOVERY_CODE || '';
 const BACKUP_FORMAT = 'cob-advogados-backup';
 const BACKUP_VERSION = 1;
@@ -90,6 +97,23 @@ const pgPool = DATABASE_URL
       ssl: process.env.PGSSLMODE === 'disable' ? false : { rejectUnauthorized: false }
     })
   : null;
+const supabaseStorage = SUPABASE_URL && SUPABASE_STORAGE_KEY
+  ? createClient(SUPABASE_URL, SUPABASE_STORAGE_KEY, {
+      auth: {
+        persistSession: false,
+        autoRefreshToken: false,
+        detectSessionInUrl: false
+      }
+    })
+  : null;
+const guideUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: {
+    fileSize: GUIDE_FILE_MAX_BYTES,
+    files: 1,
+    fields: 4
+  }
+});
 
 if (!fs.existsSync(DATA_DIR)) {
   fs.mkdirSync(DATA_DIR, { recursive: true });
@@ -292,6 +316,135 @@ function dateString(value) {
   return date.toISOString().slice(0, 10);
 }
 
+function detectGuideFile(buffer) {
+  if (!Buffer.isBuffer(buffer)) return null;
+
+  if (buffer.length >= 5 && buffer.subarray(0, 5).toString('ascii') === '%PDF-') {
+    return { extension: 'pdf', mimeType: 'application/pdf' };
+  }
+  if (buffer.length >= 8 && buffer.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))) {
+    return { extension: 'png', mimeType: 'image/png' };
+  }
+  if (buffer.length >= 3 && buffer[0] === 0xff && buffer[1] === 0xd8 && buffer[2] === 0xff) {
+    return { extension: 'jpg', mimeType: 'image/jpeg' };
+  }
+  if (
+    buffer.length >= 12 &&
+    buffer.subarray(0, 4).toString('ascii') === 'RIFF' &&
+    buffer.subarray(8, 12).toString('ascii') === 'WEBP'
+  ) {
+    return { extension: 'webp', mimeType: 'image/webp' };
+  }
+
+  return null;
+}
+
+function sanitizeGuideFileName(fileName, extension) {
+  const original = String(fileName || `guia.${extension}`)
+    .replace(/[\\/:*?"<>|]/g, '_')
+    .replace(/[\u0000-\u001f\u007f]/g, '')
+    .trim()
+    .slice(0, 180);
+  const baseName = original.replace(/\.[^.]+$/, '') || 'guia';
+  return `${baseName}.${extension}`;
+}
+
+function storageSafeName(fileName) {
+  return String(fileName || 'guia')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-zA-Z0-9._-]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 120) || 'guia';
+}
+
+function isHttpUrl(value) {
+  try {
+    const parsed = new URL(String(value || '').trim());
+    return parsed.protocol === 'http:' || parsed.protocol === 'https:';
+  } catch (err) {
+    return false;
+  }
+}
+
+let guideBucketReadyPromise = null;
+
+async function ensureGuideBucket() {
+  if (!supabaseStorage) {
+    throw new Error('Storage de guias nao configurado no servidor. Defina SUPABASE_URL e SUPABASE_SECRET_KEY.');
+  }
+
+  if (!guideBucketReadyPromise) {
+    guideBucketReadyPromise = (async () => {
+      const { error: getError } = await supabaseStorage.storage.getBucket(SUPABASE_GUIDES_BUCKET);
+      if (!getError) return;
+
+      const { error: createError } = await supabaseStorage.storage.createBucket(SUPABASE_GUIDES_BUCKET, {
+        public: false,
+        fileSizeLimit: GUIDE_FILE_MAX_BYTES,
+        allowedMimeTypes: ['application/pdf', 'image/jpeg', 'image/png', 'image/webp']
+      });
+
+      if (createError && !/already exists/i.test(createError.message || '')) {
+        throw createError;
+      }
+    })().catch(err => {
+      guideBucketReadyPromise = null;
+      throw err;
+    });
+  }
+
+  return guideBucketReadyPromise;
+}
+
+async function uploadGuideFile(requestId, file) {
+  const detected = detectGuideFile(file && file.buffer);
+  if (!detected) {
+    throw new Error('Formato de arquivo invalido. Envie PDF, JPG, PNG ou WebP.');
+  }
+
+  await ensureGuideBucket();
+
+  const displayName = sanitizeGuideFileName(file.originalname, detected.extension);
+  const objectName = `${Date.now()}-${crypto.randomBytes(6).toString('hex')}-${storageSafeName(displayName)}`;
+  const objectPath = `guides/${storageSafeName(requestId)}/${objectName}`;
+  const { error } = await supabaseStorage.storage
+    .from(SUPABASE_GUIDES_BUCKET)
+    .upload(objectPath, file.buffer, {
+      contentType: detected.mimeType,
+      cacheControl: '3600',
+      upsert: false
+    });
+
+  if (error) throw error;
+
+  return {
+    path: objectPath,
+    name: displayName,
+    type: detected.mimeType,
+    size: file.size
+  };
+}
+
+async function removeGuideFile(objectPath) {
+  if (!supabaseStorage || !objectPath) return;
+  const { error } = await supabaseStorage.storage.from(SUPABASE_GUIDES_BUCKET).remove([objectPath]);
+  if (error) console.error('Erro ao remover arquivo antigo da guia:', error);
+}
+
+function parseGuideUpload(req, res, next) {
+  guideUpload.single('guideFile')(req, res, err => {
+    if (!err) return next();
+
+    if (err instanceof multer.MulterError && err.code === 'LIMIT_FILE_SIZE') {
+      return res.status(400).json({ error: `O arquivo da guia deve ter no maximo ${GUIDE_FILE_MAX_MB} MB.` });
+    }
+
+    console.error('Erro ao receber arquivo da guia:', err);
+    return res.status(400).json({ error: 'Nao foi possivel receber o arquivo da guia.' });
+  });
+}
+
 function mapLawyerRow(row) {
   return {
     id: row.id,
@@ -351,6 +504,10 @@ function mapPaymentRequestRow(row) {
     requestedAt: isoString(row.requested_at),
     guideText: row.guide_text || '',
     guideLink: row.guide_link || '',
+    guideFilePath: row.guide_file_path || '',
+    guideFileName: row.guide_file_name || '',
+    guideFileType: row.guide_file_type || '',
+    guideFileSize: Number(row.guide_file_size || 0),
     guideAmount: row.guide_amount || '',
     guideDueDate: dateString(row.guide_due_date),
     guideGeneratedBy: row.guide_generated_by || null,
@@ -456,6 +613,10 @@ async function ensurePostgresSchema() {
       requested_at timestamptz not null,
       guide_text text,
       guide_link text,
+      guide_file_path text,
+      guide_file_name text,
+      guide_file_type text,
+      guide_file_size integer,
       guide_amount text,
       guide_due_date date,
       guide_generated_by jsonb,
@@ -487,6 +648,10 @@ async function ensurePostgresSchema() {
       where status <> 'cancelado' and lawyer_id is not null and scheduled_date is not null and scheduled_time is not null;
 
     alter table appointments add column if not exists updated_by jsonb;
+    alter table payment_requests add column if not exists guide_file_path text;
+    alter table payment_requests add column if not exists guide_file_name text;
+    alter table payment_requests add column if not exists guide_file_type text;
+    alter table payment_requests add column if not exists guide_file_size integer;
     alter table appointments drop constraint if exists appointments_lawyer_id_fkey;
     alter table users add column if not exists job_title text;
     alter table users drop constraint if exists users_role_check;
@@ -645,15 +810,15 @@ async function upsertPaymentRequest(client, request) {
     `
       insert into payment_requests (
         id, process_number, client_name, notes, status, lawyer_id, lawyer_name,
-        requested_by, requested_at, guide_text, guide_link, guide_amount, guide_due_date,
-        guide_generated_by, guide_generated_at, payment_receipt_text, payment_receipt_link,
-        paid_by, paid_at, updated_at
+        requested_by, requested_at, guide_text, guide_link, guide_file_path, guide_file_name,
+        guide_file_type, guide_file_size, guide_amount, guide_due_date, guide_generated_by,
+        guide_generated_at, payment_receipt_text, payment_receipt_link, paid_by, paid_at, updated_at
       )
       values (
         $1, $2, $3, $4, $5, $6, $7,
         $8::jsonb, $9, $10, $11, $12, $13,
-        $14::jsonb, $15, $16, $17,
-        $18::jsonb, $19, $20
+        $14, $15, $16, $17, $18::jsonb,
+        $19, $20, $21, $22::jsonb, $23, $24
       )
       on conflict (id) do update set
         process_number = excluded.process_number,
@@ -666,6 +831,10 @@ async function upsertPaymentRequest(client, request) {
         requested_at = excluded.requested_at,
         guide_text = excluded.guide_text,
         guide_link = excluded.guide_link,
+        guide_file_path = excluded.guide_file_path,
+        guide_file_name = excluded.guide_file_name,
+        guide_file_type = excluded.guide_file_type,
+        guide_file_size = excluded.guide_file_size,
         guide_amount = excluded.guide_amount,
         guide_due_date = excluded.guide_due_date,
         guide_generated_by = excluded.guide_generated_by,
@@ -688,6 +857,10 @@ async function upsertPaymentRequest(client, request) {
       dateParam(request.requestedAt) || new Date(),
       request.guideText || null,
       request.guideLink || null,
+      request.guideFilePath || null,
+      request.guideFileName || null,
+      request.guideFileType || null,
+      Number(request.guideFileSize || 0) || null,
       request.guideAmount || null,
       request.guideDueDate || null,
       jsonParam(request.guideGeneratedBy),
@@ -918,14 +1091,22 @@ function getPaymentRequestSnapshot(request, session = null) {
     lawyerName: request.lawyerName || '',
     requestedBy: request.requestedBy || null,
     requestedAt: request.requestedAt || null,
-    guideText: request.guideText || '',
-    guideLink: request.guideLink || '',
-    guideAmount: request.guideAmount || '',
-    guideDueDate: request.guideDueDate || '',
     guideGeneratedBy: request.guideGeneratedBy || null,
     guideGeneratedAt: request.guideGeneratedAt || null,
     updatedAt: request.updatedAt || null
   };
+
+  const canViewGuide = !session || session.role !== 'advogado' || request.status === 'pago';
+  if (canViewGuide) {
+    snapshot.guideText = request.guideText || '';
+    snapshot.guideLink = request.guideLink || '';
+    snapshot.guideFileName = request.guideFileName || '';
+    snapshot.guideFileType = request.guideFileType || '';
+    snapshot.guideFileSize = Number(request.guideFileSize || 0);
+    snapshot.guideFileUrl = request.guideFilePath ? `/api/payment-requests/${encodeURIComponent(request.id)}/guide-file` : '';
+    snapshot.guideAmount = request.guideAmount || '';
+    snapshot.guideDueDate = request.guideDueDate || '';
+  }
 
   if (!session || session.role !== 'contadora') {
     snapshot.paymentReceiptText = request.paymentReceiptText || '';
@@ -2010,6 +2191,10 @@ app.post('/api/payment-requests', requireRole('admin', 'advogado'), (req, res) =
     requestedAt: now,
     guideText: '',
     guideLink: '',
+    guideFilePath: '',
+    guideFileName: '',
+    guideFileType: '',
+    guideFileSize: 0,
     guideAmount: '',
     guideDueDate: '',
     guideGeneratedBy: null,
@@ -2049,7 +2234,47 @@ app.post('/api/payment-requests', requireRole('admin', 'advogado'), (req, res) =
   });
 });
 
-app.put('/api/payment-requests/:id/guide', requireRole('admin', 'contadora'), (req, res) => {
+app.get('/api/payment-requests/:id/guide-file', requireRole('admin', 'advogado', 'contadora', 'gerente'), async (req, res) => {
+  const request = (db.paymentRequests || []).find(item => item.id === req.params.id);
+  if (!request || !request.guideFilePath) {
+    return res.status(404).json({ error: 'Arquivo da guia nao encontrado.' });
+  }
+
+  if (req.session.role === 'advogado' && request.lawyerId !== req.session.lawyerId) {
+    return res.status(403).json({ error: 'Voce nao pode acessar esta guia.' });
+  }
+  if (req.session.role === 'advogado' && request.status !== 'pago') {
+    return res.status(403).json({ error: 'A guia sera disponibilizada depois do pagamento.' });
+  }
+
+  if (!supabaseStorage) {
+    return res.status(503).json({ error: 'Storage de guias nao configurado no servidor.' });
+  }
+
+  try {
+    const { data, error } = await supabaseStorage.storage
+      .from(SUPABASE_GUIDES_BUCKET)
+      .download(request.guideFilePath, {}, { cache: 'no-store' });
+
+    if (error) throw error;
+
+    const fileName = sanitizeGuideFileName(
+      request.guideFileName || 'guia.pdf',
+      request.guideFileType === 'application/pdf' ? 'pdf' : (request.guideFileName || 'guia.bin').split('.').pop()
+    );
+    const fileBuffer = Buffer.from(await data.arrayBuffer());
+    res.setHeader('Content-Type', request.guideFileType || 'application/octet-stream');
+    res.setHeader('Content-Length', String(fileBuffer.length));
+    res.setHeader('Cache-Control', 'private, no-store');
+    res.setHeader('Content-Disposition', `attachment; filename="${fileName}"; filename*=UTF-8''${encodeURIComponent(fileName)}`);
+    return res.send(fileBuffer);
+  } catch (err) {
+    console.error('Erro ao baixar arquivo da guia:', err);
+    return res.status(502).json({ error: 'Nao foi possivel baixar o arquivo da guia.' });
+  }
+});
+
+app.put('/api/payment-requests/:id/guide', requireRole('admin', 'contadora'), parseGuideUpload, async (req, res) => {
   const request = (db.paymentRequests || []).find(item => item.id === req.params.id);
   if (!request) {
     return res.status(404).json({ error: 'Solicitacao nao encontrada.' });
@@ -2064,14 +2289,41 @@ app.put('/api/payment-requests/:id/guide', requireRole('admin', 'contadora'), (r
   const guideAmount = String(req.body?.guideAmount || '').trim().slice(0, 80);
   const guideDueDate = String(req.body?.guideDueDate || '').trim().slice(0, 10);
 
-  if (!guideText && !guideLink) {
-    return res.status(400).json({ error: 'Informe os dados da guia ou um link para a guia.' });
+  if (!req.file && !guideLink && !request.guideFilePath) {
+    return res.status(400).json({ error: 'Anexe o arquivo da guia ou informe um link.' });
   }
 
+  if (guideLink && !isHttpUrl(guideLink)) {
+    return res.status(400).json({ error: 'Informe um link valido, iniciado por http:// ou https://.' });
+  }
+
+  let uploadedFile = null;
+  if (req.file) {
+    try {
+      uploadedFile = await uploadGuideFile(request.id, req.file);
+    } catch (err) {
+      console.error('Erro ao enviar arquivo da guia ao Supabase Storage:', err);
+      const invalidFile = /Formato de arquivo invalido/i.test(err.message || '');
+      const missingConfig = /Storage de guias nao configurado/i.test(err.message || '');
+      return res.status(invalidFile ? 400 : (missingConfig ? 503 : 502)).json({
+        error: invalidFile || missingConfig ? err.message : 'Nao foi possivel armazenar o arquivo da guia.'
+      });
+    }
+  }
+
+  const requestBeforeUpdate = cloneJson(request);
+  const auditLogsBeforeUpdate = (db.auditLogs || []).slice();
+  const previousFilePath = request.guideFilePath || '';
   const now = new Date().toISOString();
   request.status = 'guia_gerada';
   request.guideText = guideText;
   request.guideLink = guideLink;
+  if (uploadedFile) {
+    request.guideFilePath = uploadedFile.path;
+    request.guideFileName = uploadedFile.name;
+    request.guideFileType = uploadedFile.type;
+    request.guideFileSize = uploadedFile.size;
+  }
   request.guideAmount = guideAmount;
   request.guideDueDate = guideDueDate;
   request.guideGeneratedBy = getActorFromSession(req.session);
@@ -2081,9 +2333,23 @@ app.put('/api/payment-requests/:id/guide', requireRole('admin', 'contadora'), (r
   const auditLog = addAuditLog('payment_request.guide_generated', req.session, {
     requestId: request.id,
     processNumber: request.processNumber,
-    lawyerName: request.lawyerName
+    lawyerName: request.lawyerName,
+    deliveryMethod: uploadedFile && guideLink ? 'file_and_link' : (uploadedFile ? 'file' : 'link'),
+    guideFileName: uploadedFile ? uploadedFile.name : request.guideFileName || null
   }, req);
-  saveData(db, { paymentRequests: [request], auditLogs: [auditLog] });
+
+  try {
+    await saveData(db, { paymentRequests: [request], auditLogs: [auditLog] });
+  } catch (err) {
+    Object.assign(request, requestBeforeUpdate);
+    db.auditLogs = auditLogsBeforeUpdate;
+    if (uploadedFile) await removeGuideFile(uploadedFile.path);
+    return res.status(500).json({ error: 'Nao foi possivel salvar a guia.' });
+  }
+
+  if (uploadedFile && previousFilePath && previousFilePath !== uploadedFile.path) {
+    await removeGuideFile(previousFilePath);
+  }
 
   emitPaymentRequestsUpdated();
   io.to('gerente_room').emit('payment_request_notice', {

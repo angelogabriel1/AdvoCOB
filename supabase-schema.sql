@@ -72,6 +72,10 @@ create table if not exists payment_requests (
   requested_at timestamptz not null,
   guide_text text,
   guide_link text,
+  guide_file_path text,
+  guide_file_name text,
+  guide_file_type text,
+  guide_file_size integer,
   guide_amount text,
   guide_due_date date,
   guide_generated_by jsonb,
@@ -82,6 +86,11 @@ create table if not exists payment_requests (
   paid_at timestamptz,
   updated_at timestamptz
 );
+
+alter table payment_requests add column if not exists guide_file_path text;
+alter table payment_requests add column if not exists guide_file_name text;
+alter table payment_requests add column if not exists guide_file_type text;
+alter table payment_requests add column if not exists guide_file_size integer;
 
 create table if not exists audit_logs (
   id text primary key,

@@ -128,7 +128,7 @@ async function submitPayment(requestId) {
 }
 
 function renderGuideSummary(item) {
-  if (!item.guideText && !item.guideLink && !item.guideAmount && !item.guideDueDate) {
+  if (!item.guideText && !item.guideLink && !item.guideFileName && !item.guideAmount && !item.guideDueDate) {
     return `<div style="color: var(--text-muted); font-size: 0.82rem; margin-top: 0.75rem;">Aguardando guia da contadora.</div>`;
   }
 
@@ -138,9 +138,30 @@ function renderGuideSummary(item) {
       ${item.guideAmount ? `<span style="color: var(--text-muted); margin-left: 0.4rem;">Valor: ${escapeHtml(item.guideAmount)}</span>` : ''}
       ${item.guideDueDate ? `<span style="color: var(--text-muted); margin-left: 0.4rem;">Vencimento: ${formatDateBR(item.guideDueDate)}</span>` : ''}
       ${item.guideText ? `<div style="color: var(--text-muted); margin-top: 0.25rem;">${escapeHtml(item.guideText)}</div>` : ''}
+      ${renderGuideFileButton(item)}
       ${renderSafeLink(item.guideLink, 'Abrir guia')}
     </div>
   `;
+}
+
+function renderGuideFileButton(item) {
+  if (!item.guideFileUrl || !item.guideFileName) return '';
+  return `
+    <div style="color: var(--text-muted); margin-top: 0.35rem; overflow-wrap: anywhere;">${escapeHtml(item.guideFileName)}</div>
+    <button type="button" class="btn btn-secondary btn-sm" style="margin-top: 0.5rem;" onclick="downloadGuideFile('${item.id}')">Baixar arquivo</button>
+  `;
+}
+
+async function downloadGuideFile(requestId) {
+  const item = paymentRequests.find(request => request.id === requestId);
+  if (!item || !item.guideFileUrl) return;
+
+  try {
+    await Auth.downloadFile(item.guideFileUrl, item.guideFileName || 'guia');
+  } catch (err) {
+    console.error(err);
+    showToast(err.message || 'Erro ao baixar a guia.', 'danger');
+  }
 }
 
 function renderReceiptSummary(item) {

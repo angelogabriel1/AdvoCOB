@@ -60,7 +60,20 @@ Variavel no Render:
 DATABASE_URL=postgresql://usuario:senha@host:5432/postgres
 ```
 
-O app cria/atualiza automaticamente o registro principal em `app_state`.
+O app cria e atualiza automaticamente as tabelas relacionais necessarias.
+
+### 3. Configurar anexos de guia
+
+Para permitir que a contadora envie PDF ou imagem, adicione no Render:
+
+```env
+SUPABASE_URL=https://seu-projeto.supabase.co
+SUPABASE_SECRET_KEY=sb_secret_...
+SUPABASE_GUIDES_BUCKET=advocob-guides
+GUIDE_FILE_MAX_MB=10
+```
+
+A chave secreta fica apenas no Render. O servidor cria o bucket privado na primeira tentativa de upload. Projetos antigos podem usar `SUPABASE_SERVICE_ROLE_KEY` no lugar de `SUPABASE_SECRET_KEY`.
 
 ## Checklist antes de abrir para clientes
 
