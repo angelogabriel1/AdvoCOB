@@ -308,10 +308,16 @@ async function submitPaymentRequest(event) {
 
   const processNumber = document.getElementById('paymentProcessNumber').value.trim();
   const clientName = document.getElementById('paymentClientName').value.trim();
+  const guideAmount = document.getElementById('paymentAmount').value.trim();
   const notes = document.getElementById('paymentNotes').value.trim();
 
   if (!processNumber) {
     alert('Informe o numero do processo.');
+    return;
+  }
+
+  if (!guideAmount) {
+    alert('Informe o valor do pagamento.');
     return;
   }
 
@@ -322,6 +328,7 @@ async function submitPaymentRequest(event) {
       body: JSON.stringify({
         processNumber,
         clientName,
+        guideAmount,
         notes,
         lawyerId: currentLawyer ? currentLawyer.id : null
       })
@@ -373,6 +380,7 @@ function renderPaymentRequests() {
         <div>
           <strong style="color: var(--text-main);">${escapeHtml(item.processNumber)}</strong>
           ${item.clientName ? `<div style="font-size: 0.82rem; color: var(--text-muted);">Cliente: ${escapeHtml(item.clientName)}</div>` : ''}
+          <div style="font-size: 0.82rem; color: var(--cob-silver-bright); margin-top: 0.2rem;"><strong>Valor solicitado:</strong> ${escapeHtml(item.guideAmount || 'Nao informado')}</div>
           ${item.notes ? `<div style="font-size: 0.8rem; color: #94a3b8; margin-top: 0.25rem;">${escapeHtml(item.notes)}</div>` : ''}
         </div>
         ${renderPaymentStatusBadge(item.status)}
@@ -400,12 +408,11 @@ function renderPaymentStatusBadge(status) {
 }
 
 function renderGuideSummary(item) {
-  if (!item.guideText && !item.guideLink && !item.guideFileName && !item.guideAmount && !item.guideDueDate) return '';
+  if (!item.guideText && !item.guideLink && !item.guideFileName && !item.guideDueDate) return '';
 
   return `
     <div style="border-top: 1px solid var(--border-color); margin-top: 0.75rem; padding-top: 0.75rem; font-size: 0.82rem; color: var(--cob-silver-bright);">
       <strong>Guia:</strong>
-      ${item.guideAmount ? `<span style="margin-left: 0.4rem;">Valor: ${escapeHtml(item.guideAmount)}</span>` : ''}
       ${item.guideDueDate ? `<span style="margin-left: 0.4rem;">Vencimento: ${formatDateBR(item.guideDueDate)}</span>` : ''}
       ${item.guideText ? `<div style="color: var(--text-muted); margin-top: 0.25rem;">${escapeHtml(item.guideText)}</div>` : ''}
       ${renderGuideFileButton(item)}

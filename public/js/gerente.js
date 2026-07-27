@@ -67,6 +67,7 @@ function renderRequestList(containerId, requests, canPay) {
           <strong style="color: var(--text-main);">${escapeHtml(item.processNumber)}</strong>
           <div style="font-size: 0.82rem; color: var(--text-muted);">Advogado: ${escapeHtml(item.lawyerName || 'Nao informado')}</div>
           ${item.clientName ? `<div style="font-size: 0.82rem; color: var(--text-muted);">Cliente: ${escapeHtml(item.clientName)}</div>` : ''}
+          <div style="font-size: 0.82rem; color: var(--cob-silver-bright); margin-top: 0.2rem;"><strong>Valor solicitado:</strong> ${escapeHtml(item.guideAmount || 'Nao informado')}</div>
           ${item.notes ? `<div style="font-size: 0.8rem; color: #94a3b8; margin-top: 0.25rem;">${escapeHtml(item.notes)}</div>` : ''}
         </div>
         ${renderStatusBadge(item.status)}
@@ -128,14 +129,13 @@ async function submitPayment(requestId) {
 }
 
 function renderGuideSummary(item) {
-  if (!item.guideText && !item.guideLink && !item.guideFileName && !item.guideAmount && !item.guideDueDate) {
+  if (!item.guideText && !item.guideLink && !item.guideFileName && !item.guideDueDate) {
     return `<div style="color: var(--text-muted); font-size: 0.82rem; margin-top: 0.75rem;">Aguardando guia da contadora.</div>`;
   }
 
   return `
     <div style="border-top: 1px solid var(--border-color); margin-top: 0.75rem; padding-top: 0.75rem; font-size: 0.82rem;">
       <strong style="color: var(--cob-silver-bright);">Guia recebida</strong>
-      ${item.guideAmount ? `<span style="color: var(--text-muted); margin-left: 0.4rem;">Valor: ${escapeHtml(item.guideAmount)}</span>` : ''}
       ${item.guideDueDate ? `<span style="color: var(--text-muted); margin-left: 0.4rem;">Vencimento: ${formatDateBR(item.guideDueDate)}</span>` : ''}
       ${item.guideText ? `<div style="color: var(--text-muted); margin-top: 0.25rem;">${escapeHtml(item.guideText)}</div>` : ''}
       ${renderGuideFileButton(item)}

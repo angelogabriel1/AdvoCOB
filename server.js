@@ -1091,6 +1091,7 @@ function getPaymentRequestSnapshot(request, session = null) {
     lawyerName: request.lawyerName || '',
     requestedBy: request.requestedBy || null,
     requestedAt: request.requestedAt || null,
+    guideAmount: request.guideAmount || '',
     guideGeneratedBy: request.guideGeneratedBy || null,
     guideGeneratedAt: request.guideGeneratedAt || null,
     updatedAt: request.updatedAt || null
@@ -1104,7 +1105,6 @@ function getPaymentRequestSnapshot(request, session = null) {
     snapshot.guideFileType = request.guideFileType || '';
     snapshot.guideFileSize = Number(request.guideFileSize || 0);
     snapshot.guideFileUrl = request.guideFilePath ? `/api/payment-requests/${encodeURIComponent(request.id)}/guide-file` : '';
-    snapshot.guideAmount = request.guideAmount || '';
     snapshot.guideDueDate = request.guideDueDate || '';
   }
 
@@ -2158,13 +2158,18 @@ app.get('/api/payment-requests', requireRole('admin', 'advogado', 'contadora', '
 });
 
 app.post('/api/payment-requests', requireRole('admin', 'advogado'), (req, res) => {
-  const { processNumber, clientName, notes, lawyerId } = req.body || {};
+  const { processNumber, clientName, guideAmount, notes, lawyerId } = req.body || {};
   const cleanProcessNumber = String(processNumber || '').trim();
   const cleanClientName = String(clientName || '').trim();
+  const cleanGuideAmount = String(guideAmount || '').trim().slice(0, 80);
   const cleanNotes = String(notes || '').trim().slice(0, 1200);
 
   if (!cleanProcessNumber) {
     return res.status(400).json({ error: 'Numero do processo e obrigatorio.' });
+  }
+
+  if (!cleanGuideAmount) {
+    return res.status(400).json({ error: 'Valor do pagamento e obrigatorio.' });
   }
 
   let lawyer = null;
@@ -2195,7 +2200,7 @@ app.post('/api/payment-requests', requireRole('admin', 'advogado'), (req, res) =
     guideFileName: '',
     guideFileType: '',
     guideFileSize: 0,
-    guideAmount: '',
+    guideAmount: cleanGuideAmount,
     guideDueDate: '',
     guideGeneratedBy: null,
     guideGeneratedAt: null,
@@ -2212,7 +2217,8 @@ app.post('/api/payment-requests', requireRole('admin', 'advogado'), (req, res) =
   const auditLog = addAuditLog('payment_request.created', req.session, {
     requestId: request.id,
     processNumber: request.processNumber,
-    lawyerName: request.lawyerName
+    lawyerName: request.lawyerName,
+    guideAmount: request.guideAmount
   }, req);
   saveData(db, { paymentRequests: [request], auditLogs: [auditLog] });
 
@@ -2286,7 +2292,6 @@ app.put('/api/payment-requests/:id/guide', requireRole('admin', 'contadora'), pa
 
   const guideText = String(req.body?.guideText || '').trim().slice(0, 2000);
   const guideLink = String(req.body?.guideLink || '').trim().slice(0, 1000);
-  const guideAmount = String(req.body?.guideAmount || '').trim().slice(0, 80);
   const guideDueDate = String(req.body?.guideDueDate || '').trim().slice(0, 10);
 
   if (!req.file && !guideLink && !request.guideFilePath) {
@@ -2324,7 +2329,6 @@ app.put('/api/payment-requests/:id/guide', requireRole('admin', 'contadora'), pa
     request.guideFileType = uploadedFile.type;
     request.guideFileSize = uploadedFile.size;
   }
-  request.guideAmount = guideAmount;
   request.guideDueDate = guideDueDate;
   request.guideGeneratedBy = getActorFromSession(req.session);
   request.guideGeneratedAt = now;

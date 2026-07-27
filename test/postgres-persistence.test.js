@@ -65,3 +65,25 @@ test('envio de guia aceita arquivo ou link e persiste apenas metadados', () => {
   assert.match(snapshotSource, /session\.role !== 'advogado' \|\| request\.status === 'pago'/);
   assert.doesNotMatch(snapshotSource, /guideFilePath\s*:/);
 });
+
+test('valor do pagamento e definido pelo advogado e preservado pela contadora', () => {
+  const requestRouteSource = sourceBetween(
+    "app.post('/api/payment-requests'",
+    "app.get('/api/payment-requests/:id/guide-file'"
+  );
+  const guideRouteSource = sourceBetween(
+    "app.put('/api/payment-requests/:id/guide'",
+    "app.put('/api/payment-requests/:id/payment'"
+  );
+  const snapshotSource = sourceBetween(
+    'function getPaymentRequestSnapshot',
+    'function visiblePaymentRequestsForSession'
+  );
+
+  assert.match(requestRouteSource, /cleanGuideAmount/);
+  assert.match(requestRouteSource, /Valor do pagamento e obrigatorio/);
+  assert.match(requestRouteSource, /guideAmount: cleanGuideAmount/);
+  assert.doesNotMatch(guideRouteSource, /req\.body\?\.guideAmount/);
+  assert.doesNotMatch(guideRouteSource, /request\.guideAmount\s*=/);
+  assert.match(snapshotSource, /guideAmount: request\.guideAmount \|\| ''/);
+});

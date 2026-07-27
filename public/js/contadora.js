@@ -67,6 +67,7 @@ function renderRequestList(containerId, requests, canEditPending) {
           <strong style="color: var(--text-main);">${escapeHtml(item.processNumber)}</strong>
           <div style="font-size: 0.82rem; color: var(--text-muted);">Advogado: ${escapeHtml(item.lawyerName || 'Nao informado')}</div>
           ${item.clientName ? `<div style="font-size: 0.82rem; color: var(--text-muted);">Cliente: ${escapeHtml(item.clientName)}</div>` : ''}
+          <div style="font-size: 0.82rem; color: var(--cob-silver-bright); margin-top: 0.2rem;"><strong>Valor informado pelo advogado:</strong> ${escapeHtml(item.guideAmount || 'Nao informado')}</div>
           ${item.notes ? `<div style="font-size: 0.8rem; color: #94a3b8; margin-top: 0.25rem;">${escapeHtml(item.notes)}</div>` : ''}
         </div>
         ${renderStatusBadge(item.status)}
@@ -95,10 +96,6 @@ function renderGuideForm(item) {
           <textarea id="guideText_${item.id}" class="form-control" rows="2" maxlength="2000" placeholder="Linha digitavel, codigo de barras ou detalhes da guia">${escapeHtml(item.guideText || '')}</textarea>
         </div>
         <div class="form-group">
-          <label for="guideAmount_${item.id}">Valor</label>
-          <input id="guideAmount_${item.id}" class="form-control" value="${escapeHtml(item.guideAmount || '')}" placeholder="Ex: R$ 150,00">
-        </div>
-        <div class="form-group">
           <label for="guideDueDate_${item.id}">Vencimento</label>
           <input id="guideDueDate_${item.id}" type="date" class="form-control" value="${escapeHtml(item.guideDueDate || '')}">
         </div>
@@ -112,7 +109,6 @@ async function submitGuide(requestId) {
   const guideFile = document.getElementById(`guideFile_${requestId}`).files[0] || null;
   const guideText = document.getElementById(`guideText_${requestId}`).value.trim();
   const guideLink = document.getElementById(`guideLink_${requestId}`).value.trim();
-  const guideAmount = document.getElementById(`guideAmount_${requestId}`).value.trim();
   const guideDueDate = document.getElementById(`guideDueDate_${requestId}`).value;
   const submitButton = document.getElementById(`submitGuide_${requestId}`);
 
@@ -125,7 +121,6 @@ async function submitGuide(requestId) {
   if (guideFile) formData.append('guideFile', guideFile);
   formData.append('guideText', guideText);
   formData.append('guideLink', guideLink);
-  formData.append('guideAmount', guideAmount);
   formData.append('guideDueDate', guideDueDate);
 
   try {
@@ -159,12 +154,11 @@ async function submitGuide(requestId) {
 }
 
 function renderGuideSummary(item) {
-  if (!item.guideText && !item.guideLink && !item.guideFileName && !item.guideAmount && !item.guideDueDate) return '';
+  if (!item.guideText && !item.guideLink && !item.guideFileName && !item.guideDueDate) return '';
 
   return `
     <div style="border-top: 1px solid var(--border-color); margin-top: 0.75rem; padding-top: 0.75rem; font-size: 0.82rem;">
       <strong style="color: var(--cob-silver-bright);">Guia registrada</strong>
-      ${item.guideAmount ? `<span style="color: var(--text-muted); margin-left: 0.4rem;">Valor: ${escapeHtml(item.guideAmount)}</span>` : ''}
       ${item.guideDueDate ? `<span style="color: var(--text-muted); margin-left: 0.4rem;">Vencimento: ${formatDateBR(item.guideDueDate)}</span>` : ''}
       ${item.guideText ? `<div style="color: var(--text-muted); margin-top: 0.25rem;">${escapeHtml(item.guideText)}</div>` : ''}
       ${renderGuideFileButton(item)}
