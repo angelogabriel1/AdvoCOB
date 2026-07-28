@@ -4,6 +4,7 @@ const path = require('node:path');
 const test = require('node:test');
 
 const serverSource = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
+const managerSource = fs.readFileSync(path.join(__dirname, '..', 'public', 'js', 'gerente.js'), 'utf8');
 
 function sourceBetween(startMarker, endMarker) {
   const start = serverSource.indexOf(startMarker);
@@ -86,4 +87,32 @@ test('valor do pagamento e definido pelo advogado e preservado pela contadora', 
   assert.doesNotMatch(guideRouteSource, /req\.body\?\.guideAmount/);
   assert.doesNotMatch(guideRouteSource, /request\.guideAmount\s*=/);
   assert.match(snapshotSource, /guideAmount: request\.guideAmount \|\| ''/);
+});
+
+test('gerente envia comprovante por arquivo ou link sem expor o caminho privado', () => {
+  const receiptDownloadRouteSource = sourceBetween(
+    "app.get('/api/payment-requests/:id/receipt-file'",
+    "app.put('/api/payment-requests/:id/payment'"
+  );
+  const paymentRouteSource = sourceBetween(
+    "app.put('/api/payment-requests/:id/payment'",
+    "app.get('/api/lawyers'"
+  );
+  const snapshotSource = sourceBetween(
+    'function getPaymentRequestSnapshot',
+    'function visiblePaymentRequestsForSession'
+  );
+
+  assert.match(paymentRouteSource, /parsePaymentReceiptUpload/);
+  assert.match(paymentRouteSource, /!req\.file && !paymentReceiptLink/);
+  assert.match(paymentRouteSource, /uploadPaymentReceiptFile\(request\.id, req\.file\)/);
+  assert.match(paymentRouteSource, /await saveData/);
+  assert.match(managerSource, /new FormData\(\)/);
+  assert.match(managerSource, /formData\.append\('paymentReceiptFile'/);
+  assert.match(managerSource, /body: formData/);
+  assert.match(serverSource, /payment_receipt_file_path = excluded\.payment_receipt_file_path/);
+  assert.match(snapshotSource, /snapshot\.paymentReceiptFileUrl\s*=/);
+  assert.doesNotMatch(snapshotSource, /paymentReceiptFilePath\s*:/);
+  assert.match(receiptDownloadRouteSource, /requireRole\('admin', 'advogado', 'gerente'\)/);
+  assert.doesNotMatch(receiptDownloadRouteSource, /requireRole\([^)]*'contadora'/);
 });

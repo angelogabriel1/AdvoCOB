@@ -85,33 +85,48 @@ function renderPaymentForm(item) {
     <div style="border-top: 1px solid var(--border-color); margin-top: 0.9rem; padding-top: 0.9rem;">
       <div class="history-filters">
         <div class="form-group">
-          <label for="receiptText_${item.id}">Dados do Comprovante *</label>
+          <label for="receiptFile_${item.id}">Arquivo do Comprovante</label>
+          <input id="receiptFile_${item.id}" type="file" class="form-control" accept=".pdf,.jpg,.jpeg,.png,.webp,application/pdf,image/jpeg,image/png,image/webp">
+        </div>
+        <div class="form-group">
+          <label for="receiptText_${item.id}">Dados complementares</label>
           <textarea id="receiptText_${item.id}" class="form-control" rows="2" maxlength="2000" placeholder="Identificador, observacao ou codigo do comprovante"></textarea>
         </div>
         <div class="form-group">
-          <label for="receiptLink_${item.id}">Link do Comprovante</label>
+          <label for="receiptLink_${item.id}">Link do Comprovante (alternativa)</label>
           <input id="receiptLink_${item.id}" class="form-control" placeholder="https://...">
         </div>
       </div>
-      <button type="button" class="btn btn-success" onclick="submitPayment('${item.id}')">Marcar como Pago e Enviar ao Advogado</button>
+      <button id="submitPayment_${item.id}" type="button" class="btn btn-success" onclick="submitPayment('${item.id}')">Marcar como Pago e Enviar ao Advogado</button>
     </div>
   `;
 }
 
 async function submitPayment(requestId) {
+  const paymentReceiptFile = document.getElementById(`receiptFile_${requestId}`).files[0] || null;
   const paymentReceiptText = document.getElementById(`receiptText_${requestId}`).value.trim();
   const paymentReceiptLink = document.getElementById(`receiptLink_${requestId}`).value.trim();
+  const submitButton = document.getElementById(`submitPayment_${requestId}`);
 
-  if (!paymentReceiptText && !paymentReceiptLink) {
-    alert('Informe os dados do comprovante ou um link.');
+  if (!paymentReceiptFile && !paymentReceiptLink) {
+    alert('Anexe o arquivo do comprovante ou informe um link.');
     return;
   }
 
+  const formData = new FormData();
+  if (paymentReceiptFile) formData.append('paymentReceiptFile', paymentReceiptFile);
+  formData.append('paymentReceiptText', paymentReceiptText);
+  formData.append('paymentReceiptLink', paymentReceiptLink);
+
   try {
+    if (submitButton) {
+      submitButton.disabled = true;
+      submitButton.textContent = 'Enviando...';
+    }
+
     const res = await Auth.authFetch(`/api/payment-requests/${requestId}/payment`, {
       method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ paymentReceiptText, paymentReceiptLink })
+      body: formData
     });
     const data = await res.json();
     if (!res.ok) {
@@ -125,6 +140,11 @@ async function submitPayment(requestId) {
   } catch (err) {
     console.error(err);
     alert('Erro ao se comunicar com o servidor.');
+  } finally {
+    if (submitButton && document.body.contains(submitButton)) {
+      submitButton.disabled = false;
+      submitButton.textContent = 'Marcar como Pago e Enviar ao Advogado';
+    }
   }
 }
 
@@ -165,15 +185,36 @@ async function downloadGuideFile(requestId) {
 }
 
 function renderReceiptSummary(item) {
-  if (!item.paymentReceiptText && !item.paymentReceiptLink) return '';
+  if (!item.paymentReceiptText && !item.paymentReceiptLink && !item.paymentReceiptFileName) return '';
 
   return `
     <div style="border-top: 1px solid var(--border-color); margin-top: 0.75rem; padding-top: 0.75rem; font-size: 0.82rem; color: var(--accent-green);">
       <strong>Comprovante enviado ao advogado</strong>
       ${item.paymentReceiptText ? `<div style="color: var(--text-muted); margin-top: 0.25rem;">${escapeHtml(item.paymentReceiptText)}</div>` : ''}
+      ${renderReceiptFileButton(item)}
       ${renderSafeLink(item.paymentReceiptLink, 'Abrir comprovante')}
     </div>
   `;
+}
+
+function renderReceiptFileButton(item) {
+  if (!item.paymentReceiptFileUrl || !item.paymentReceiptFileName) return '';
+  return `
+    <div style="color: var(--text-muted); margin-top: 0.35rem; overflow-wrap: anywhere;">${escapeHtml(item.paymentReceiptFileName)}</div>
+    <button type="button" class="btn btn-secondary btn-sm" style="margin-top: 0.5rem;" onclick="downloadReceiptFile('${item.id}')">Baixar comprovante</button>
+  `;
+}
+
+async function downloadReceiptFile(requestId) {
+  const item = paymentRequests.find(request => request.id === requestId);
+  if (!item || !item.paymentReceiptFileUrl) return;
+
+  try {
+    await Auth.downloadFile(item.paymentReceiptFileUrl, item.paymentReceiptFileName || 'comprovante');
+  } catch (err) {
+    console.error(err);
+    showToast(err.message || 'Erro ao baixar o comprovante.', 'danger');
+  }
 }
 
 function renderStatusBadge(status) {

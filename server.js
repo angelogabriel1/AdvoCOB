@@ -106,7 +106,7 @@ const supabaseStorage = SUPABASE_URL && SUPABASE_STORAGE_KEY
       }
     })
   : null;
-const guideUpload = multer({
+const paymentDocumentUpload = multer({
   storage: multer.memoryStorage(),
   limits: {
     fileSize: GUIDE_FILE_MAX_BYTES,
@@ -339,23 +339,23 @@ function detectGuideFile(buffer) {
   return null;
 }
 
-function sanitizeGuideFileName(fileName, extension) {
-  const original = String(fileName || `guia.${extension}`)
+function sanitizePaymentFileName(fileName, extension, fallbackName = 'arquivo') {
+  const original = String(fileName || `${fallbackName}.${extension}`)
     .replace(/[\\/:*?"<>|]/g, '_')
     .replace(/[\u0000-\u001f\u007f]/g, '')
     .trim()
     .slice(0, 180);
-  const baseName = original.replace(/\.[^.]+$/, '') || 'guia';
+  const baseName = original.replace(/\.[^.]+$/, '') || fallbackName;
   return `${baseName}.${extension}`;
 }
 
 function storageSafeName(fileName) {
-  return String(fileName || 'guia')
+  return String(fileName || 'arquivo')
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '')
     .replace(/[^a-zA-Z0-9._-]+/g, '-')
     .replace(/^-+|-+$/g, '')
-    .slice(0, 120) || 'guia';
+    .slice(0, 120) || 'arquivo';
 }
 
 function isHttpUrl(value) {
@@ -397,7 +397,7 @@ async function ensureGuideBucket() {
   return guideBucketReadyPromise;
 }
 
-async function uploadGuideFile(requestId, file) {
+async function uploadPaymentDocument(requestId, file, folder, fallbackName) {
   const detected = detectGuideFile(file && file.buffer);
   if (!detected) {
     throw new Error('Formato de arquivo invalido. Envie PDF, JPG, PNG ou WebP.');
@@ -405,9 +405,9 @@ async function uploadGuideFile(requestId, file) {
 
   await ensureGuideBucket();
 
-  const displayName = sanitizeGuideFileName(file.originalname, detected.extension);
+  const displayName = sanitizePaymentFileName(file.originalname, detected.extension, fallbackName);
   const objectName = `${Date.now()}-${crypto.randomBytes(6).toString('hex')}-${storageSafeName(displayName)}`;
-  const objectPath = `guides/${storageSafeName(requestId)}/${objectName}`;
+  const objectPath = `${folder}/${storageSafeName(requestId)}/${objectName}`;
   const { error } = await supabaseStorage.storage
     .from(SUPABASE_GUIDES_BUCKET)
     .upload(objectPath, file.buffer, {
@@ -426,14 +426,22 @@ async function uploadGuideFile(requestId, file) {
   };
 }
 
-async function removeGuideFile(objectPath) {
+function uploadGuideFile(requestId, file) {
+  return uploadPaymentDocument(requestId, file, 'guides', 'guia');
+}
+
+function uploadPaymentReceiptFile(requestId, file) {
+  return uploadPaymentDocument(requestId, file, 'receipts', 'comprovante');
+}
+
+async function removePaymentDocument(objectPath) {
   if (!supabaseStorage || !objectPath) return;
   const { error } = await supabaseStorage.storage.from(SUPABASE_GUIDES_BUCKET).remove([objectPath]);
-  if (error) console.error('Erro ao remover arquivo antigo da guia:', error);
+  if (error) console.error('Erro ao remover arquivo de pagamento:', error);
 }
 
 function parseGuideUpload(req, res, next) {
-  guideUpload.single('guideFile')(req, res, err => {
+  paymentDocumentUpload.single('guideFile')(req, res, err => {
     if (!err) return next();
 
     if (err instanceof multer.MulterError && err.code === 'LIMIT_FILE_SIZE') {
@@ -442,6 +450,19 @@ function parseGuideUpload(req, res, next) {
 
     console.error('Erro ao receber arquivo da guia:', err);
     return res.status(400).json({ error: 'Nao foi possivel receber o arquivo da guia.' });
+  });
+}
+
+function parsePaymentReceiptUpload(req, res, next) {
+  paymentDocumentUpload.single('paymentReceiptFile')(req, res, err => {
+    if (!err) return next();
+
+    if (err instanceof multer.MulterError && err.code === 'LIMIT_FILE_SIZE') {
+      return res.status(400).json({ error: `O arquivo do comprovante deve ter no maximo ${GUIDE_FILE_MAX_MB} MB.` });
+    }
+
+    console.error('Erro ao receber arquivo do comprovante:', err);
+    return res.status(400).json({ error: 'Nao foi possivel receber o arquivo do comprovante.' });
   });
 }
 
@@ -514,6 +535,10 @@ function mapPaymentRequestRow(row) {
     guideGeneratedAt: isoString(row.guide_generated_at),
     paymentReceiptText: row.payment_receipt_text || '',
     paymentReceiptLink: row.payment_receipt_link || '',
+    paymentReceiptFilePath: row.payment_receipt_file_path || '',
+    paymentReceiptFileName: row.payment_receipt_file_name || '',
+    paymentReceiptFileType: row.payment_receipt_file_type || '',
+    paymentReceiptFileSize: Number(row.payment_receipt_file_size || 0),
     paidBy: row.paid_by || null,
     paidAt: isoString(row.paid_at),
     updatedAt: isoString(row.updated_at)
@@ -623,6 +648,10 @@ async function ensurePostgresSchema() {
       guide_generated_at timestamptz,
       payment_receipt_text text,
       payment_receipt_link text,
+      payment_receipt_file_path text,
+      payment_receipt_file_name text,
+      payment_receipt_file_type text,
+      payment_receipt_file_size integer,
       paid_by jsonb,
       paid_at timestamptz,
       updated_at timestamptz
@@ -652,6 +681,10 @@ async function ensurePostgresSchema() {
     alter table payment_requests add column if not exists guide_file_name text;
     alter table payment_requests add column if not exists guide_file_type text;
     alter table payment_requests add column if not exists guide_file_size integer;
+    alter table payment_requests add column if not exists payment_receipt_file_path text;
+    alter table payment_requests add column if not exists payment_receipt_file_name text;
+    alter table payment_requests add column if not exists payment_receipt_file_type text;
+    alter table payment_requests add column if not exists payment_receipt_file_size integer;
     alter table appointments drop constraint if exists appointments_lawyer_id_fkey;
     alter table users add column if not exists job_title text;
     alter table users drop constraint if exists users_role_check;
@@ -812,13 +845,16 @@ async function upsertPaymentRequest(client, request) {
         id, process_number, client_name, notes, status, lawyer_id, lawyer_name,
         requested_by, requested_at, guide_text, guide_link, guide_file_path, guide_file_name,
         guide_file_type, guide_file_size, guide_amount, guide_due_date, guide_generated_by,
-        guide_generated_at, payment_receipt_text, payment_receipt_link, paid_by, paid_at, updated_at
+        guide_generated_at, payment_receipt_text, payment_receipt_link, payment_receipt_file_path,
+        payment_receipt_file_name, payment_receipt_file_type, payment_receipt_file_size,
+        paid_by, paid_at, updated_at
       )
       values (
         $1, $2, $3, $4, $5, $6, $7,
         $8::jsonb, $9, $10, $11, $12, $13,
         $14, $15, $16, $17, $18::jsonb,
-        $19, $20, $21, $22::jsonb, $23, $24
+        $19, $20, $21, $22, $23, $24, $25,
+        $26::jsonb, $27, $28
       )
       on conflict (id) do update set
         process_number = excluded.process_number,
@@ -841,6 +877,10 @@ async function upsertPaymentRequest(client, request) {
         guide_generated_at = excluded.guide_generated_at,
         payment_receipt_text = excluded.payment_receipt_text,
         payment_receipt_link = excluded.payment_receipt_link,
+        payment_receipt_file_path = excluded.payment_receipt_file_path,
+        payment_receipt_file_name = excluded.payment_receipt_file_name,
+        payment_receipt_file_type = excluded.payment_receipt_file_type,
+        payment_receipt_file_size = excluded.payment_receipt_file_size,
         paid_by = excluded.paid_by,
         paid_at = excluded.paid_at,
         updated_at = excluded.updated_at
@@ -867,6 +907,10 @@ async function upsertPaymentRequest(client, request) {
       dateParam(request.guideGeneratedAt),
       request.paymentReceiptText || null,
       request.paymentReceiptLink || null,
+      request.paymentReceiptFilePath || null,
+      request.paymentReceiptFileName || null,
+      request.paymentReceiptFileType || null,
+      Number(request.paymentReceiptFileSize || 0) || null,
       jsonParam(request.paidBy),
       dateParam(request.paidAt),
       dateParam(request.updatedAt)
@@ -1111,6 +1155,12 @@ function getPaymentRequestSnapshot(request, session = null) {
   if (!session || session.role !== 'contadora') {
     snapshot.paymentReceiptText = request.paymentReceiptText || '';
     snapshot.paymentReceiptLink = request.paymentReceiptLink || '';
+    snapshot.paymentReceiptFileName = request.paymentReceiptFileName || '';
+    snapshot.paymentReceiptFileType = request.paymentReceiptFileType || '';
+    snapshot.paymentReceiptFileSize = Number(request.paymentReceiptFileSize || 0);
+    snapshot.paymentReceiptFileUrl = request.paymentReceiptFilePath
+      ? `/api/payment-requests/${encodeURIComponent(request.id)}/receipt-file`
+      : '';
     snapshot.paidBy = request.paidBy || null;
     snapshot.paidAt = request.paidAt || null;
   }
@@ -2206,6 +2256,10 @@ app.post('/api/payment-requests', requireRole('admin', 'advogado'), (req, res) =
     guideGeneratedAt: null,
     paymentReceiptText: '',
     paymentReceiptLink: '',
+    paymentReceiptFilePath: '',
+    paymentReceiptFileName: '',
+    paymentReceiptFileType: '',
+    paymentReceiptFileSize: 0,
     paidBy: null,
     paidAt: null,
     updatedAt: now
@@ -2264,9 +2318,10 @@ app.get('/api/payment-requests/:id/guide-file', requireRole('admin', 'advogado',
 
     if (error) throw error;
 
-    const fileName = sanitizeGuideFileName(
+    const fileName = sanitizePaymentFileName(
       request.guideFileName || 'guia.pdf',
-      request.guideFileType === 'application/pdf' ? 'pdf' : (request.guideFileName || 'guia.bin').split('.').pop()
+      request.guideFileType === 'application/pdf' ? 'pdf' : (request.guideFileName || 'guia.bin').split('.').pop(),
+      'guia'
     );
     const fileBuffer = Buffer.from(await data.arrayBuffer());
     res.setHeader('Content-Type', request.guideFileType || 'application/octet-stream');
@@ -2347,12 +2402,12 @@ app.put('/api/payment-requests/:id/guide', requireRole('admin', 'contadora'), pa
   } catch (err) {
     Object.assign(request, requestBeforeUpdate);
     db.auditLogs = auditLogsBeforeUpdate;
-    if (uploadedFile) await removeGuideFile(uploadedFile.path);
+    if (uploadedFile) await removePaymentDocument(uploadedFile.path);
     return res.status(500).json({ error: 'Nao foi possivel salvar a guia.' });
   }
 
   if (uploadedFile && previousFilePath && previousFilePath !== uploadedFile.path) {
-    await removeGuideFile(previousFilePath);
+    await removePaymentDocument(previousFilePath);
   }
 
   emitPaymentRequestsUpdated();
@@ -2368,7 +2423,50 @@ app.put('/api/payment-requests/:id/guide', requireRole('admin', 'contadora'), pa
   });
 });
 
-app.put('/api/payment-requests/:id/payment', requireRole('admin', 'gerente'), (req, res) => {
+app.get('/api/payment-requests/:id/receipt-file', requireRole('admin', 'advogado', 'gerente'), async (req, res) => {
+  const request = (db.paymentRequests || []).find(item => item.id === req.params.id);
+  if (!request || !request.paymentReceiptFilePath) {
+    return res.status(404).json({ error: 'Arquivo do comprovante nao encontrado.' });
+  }
+
+  if (req.session.role === 'advogado' && request.lawyerId !== req.session.lawyerId) {
+    return res.status(403).json({ error: 'Voce nao pode acessar este comprovante.' });
+  }
+  if (req.session.role === 'advogado' && request.status !== 'pago') {
+    return res.status(403).json({ error: 'O comprovante sera disponibilizado depois do pagamento.' });
+  }
+
+  if (!supabaseStorage) {
+    return res.status(503).json({ error: 'Storage de comprovantes nao configurado no servidor.' });
+  }
+
+  try {
+    const { data, error } = await supabaseStorage.storage
+      .from(SUPABASE_GUIDES_BUCKET)
+      .download(request.paymentReceiptFilePath, {}, { cache: 'no-store' });
+
+    if (error) throw error;
+
+    const fileName = sanitizePaymentFileName(
+      request.paymentReceiptFileName || 'comprovante.pdf',
+      request.paymentReceiptFileType === 'application/pdf'
+        ? 'pdf'
+        : (request.paymentReceiptFileName || 'comprovante.bin').split('.').pop(),
+      'comprovante'
+    );
+    const fileBuffer = Buffer.from(await data.arrayBuffer());
+    res.setHeader('Content-Type', request.paymentReceiptFileType || 'application/octet-stream');
+    res.setHeader('Content-Length', String(fileBuffer.length));
+    res.setHeader('Cache-Control', 'private, no-store');
+    res.setHeader('Content-Disposition', `attachment; filename="${fileName}"; filename*=UTF-8''${encodeURIComponent(fileName)}`);
+    return res.send(fileBuffer);
+  } catch (err) {
+    console.error('Erro ao baixar arquivo do comprovante:', err);
+    return res.status(502).json({ error: 'Nao foi possivel baixar o arquivo do comprovante.' });
+  }
+});
+
+app.put('/api/payment-requests/:id/payment', requireRole('admin', 'gerente'), parsePaymentReceiptUpload, async (req, res) => {
   const request = (db.paymentRequests || []).find(item => item.id === req.params.id);
   if (!request) {
     return res.status(404).json({ error: 'Solicitacao nao encontrada.' });
@@ -2381,14 +2479,40 @@ app.put('/api/payment-requests/:id/payment', requireRole('admin', 'gerente'), (r
   const paymentReceiptText = String(req.body?.paymentReceiptText || '').trim().slice(0, 2000);
   const paymentReceiptLink = String(req.body?.paymentReceiptLink || '').trim().slice(0, 1000);
 
-  if (!paymentReceiptText && !paymentReceiptLink) {
-    return res.status(400).json({ error: 'Informe os dados do comprovante ou um link para o comprovante.' });
+  if (!req.file && !paymentReceiptLink) {
+    return res.status(400).json({ error: 'Anexe o arquivo do comprovante ou informe um link.' });
   }
 
+  if (paymentReceiptLink && !isHttpUrl(paymentReceiptLink)) {
+    return res.status(400).json({ error: 'Informe um link valido, iniciado por http:// ou https://.' });
+  }
+
+  let uploadedFile = null;
+  if (req.file) {
+    try {
+      uploadedFile = await uploadPaymentReceiptFile(request.id, req.file);
+    } catch (err) {
+      console.error('Erro ao enviar comprovante ao Supabase Storage:', err);
+      const invalidFile = /Formato de arquivo invalido/i.test(err.message || '');
+      const missingConfig = /Storage de guias nao configurado/i.test(err.message || '');
+      return res.status(invalidFile ? 400 : (missingConfig ? 503 : 502)).json({
+        error: invalidFile || missingConfig ? err.message : 'Nao foi possivel armazenar o comprovante.'
+      });
+    }
+  }
+
+  const requestBeforeUpdate = cloneJson(request);
+  const auditLogsBeforeUpdate = (db.auditLogs || []).slice();
   const now = new Date().toISOString();
   request.status = 'pago';
   request.paymentReceiptText = paymentReceiptText;
   request.paymentReceiptLink = paymentReceiptLink;
+  if (uploadedFile) {
+    request.paymentReceiptFilePath = uploadedFile.path;
+    request.paymentReceiptFileName = uploadedFile.name;
+    request.paymentReceiptFileType = uploadedFile.type;
+    request.paymentReceiptFileSize = uploadedFile.size;
+  }
   request.paidBy = getActorFromSession(req.session);
   request.paidAt = now;
   request.updatedAt = now;
@@ -2396,9 +2520,19 @@ app.put('/api/payment-requests/:id/payment', requireRole('admin', 'gerente'), (r
   const auditLog = addAuditLog('payment_request.paid', req.session, {
     requestId: request.id,
     processNumber: request.processNumber,
-    lawyerName: request.lawyerName
+    lawyerName: request.lawyerName,
+    deliveryMethod: uploadedFile && paymentReceiptLink ? 'file_and_link' : (uploadedFile ? 'file' : 'link'),
+    paymentReceiptFileName: uploadedFile ? uploadedFile.name : null
   }, req);
-  saveData(db, { paymentRequests: [request], auditLogs: [auditLog] });
+
+  try {
+    await saveData(db, { paymentRequests: [request], auditLogs: [auditLog] });
+  } catch (err) {
+    Object.assign(request, requestBeforeUpdate);
+    db.auditLogs = auditLogsBeforeUpdate;
+    if (uploadedFile) await removePaymentDocument(uploadedFile.path);
+    return res.status(500).json({ error: 'Nao foi possivel salvar o pagamento.' });
+  }
 
   emitPaymentRequestsUpdated();
   io.to(`lawyer_${request.lawyerId}`).emit('payment_request_notice', {

@@ -131,7 +131,7 @@ Para criar/atualizar as tabelas no Supabase a partir do schema do projeto:
 npm run db:init
 ```
 
-Arquivos de guia usam um bucket privado do Supabase Storage. Configure no backend:
+Arquivos de guia e comprovantes de pagamento usam um bucket privado do Supabase Storage. Configure no backend:
 
 ```env
 SUPABASE_URL=https://seu-projeto.supabase.co

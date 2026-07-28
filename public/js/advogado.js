@@ -442,16 +442,37 @@ async function downloadGuideFile(requestId) {
 }
 
 function renderReceiptSummary(item) {
-  if (!item.paymentReceiptText && !item.paymentReceiptLink) return '';
+  if (!item.paymentReceiptText && !item.paymentReceiptLink && !item.paymentReceiptFileName) return '';
 
   return `
     <div style="border-top: 1px solid var(--border-color); margin-top: 0.75rem; padding-top: 0.75rem; font-size: 0.82rem; color: var(--accent-green);">
       <strong>Comprovante disponivel:</strong>
       ${item.paymentReceiptText ? `<div style="color: var(--text-muted); margin-top: 0.25rem;">${escapeHtml(item.paymentReceiptText)}</div>` : ''}
+      ${renderReceiptFileButton(item)}
       ${renderSafeLink(item.paymentReceiptLink, 'Abrir comprovante')}
       ${item.paidAt ? `<div style="font-size: 0.75rem; color: var(--text-muted); margin-top: 0.35rem;">Pago em ${formatDateTime(item.paidAt)}</div>` : ''}
     </div>
   `;
+}
+
+function renderReceiptFileButton(item) {
+  if (!item.paymentReceiptFileUrl || !item.paymentReceiptFileName) return '';
+  return `
+    <div style="color: var(--text-muted); margin-top: 0.35rem; overflow-wrap: anywhere;">${escapeHtml(item.paymentReceiptFileName)}</div>
+    <button type="button" class="btn btn-secondary btn-sm" style="margin-top: 0.5rem;" onclick="downloadReceiptFile('${item.id}')">Baixar comprovante</button>
+  `;
+}
+
+async function downloadReceiptFile(requestId) {
+  const item = paymentRequests.find(request => request.id === requestId);
+  if (!item || !item.paymentReceiptFileUrl) return;
+
+  try {
+    await Auth.downloadFile(item.paymentReceiptFileUrl, item.paymentReceiptFileName || 'comprovante');
+  } catch (err) {
+    console.error(err);
+    showToast(err.message || 'Erro ao baixar o comprovante.', 'danger');
+  }
 }
 
 function renderSafeLink(url, label) {

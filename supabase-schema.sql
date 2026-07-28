@@ -82,6 +82,10 @@ create table if not exists payment_requests (
   guide_generated_at timestamptz,
   payment_receipt_text text,
   payment_receipt_link text,
+  payment_receipt_file_path text,
+  payment_receipt_file_name text,
+  payment_receipt_file_type text,
+  payment_receipt_file_size integer,
   paid_by jsonb,
   paid_at timestamptz,
   updated_at timestamptz
@@ -91,6 +95,10 @@ alter table payment_requests add column if not exists guide_file_path text;
 alter table payment_requests add column if not exists guide_file_name text;
 alter table payment_requests add column if not exists guide_file_type text;
 alter table payment_requests add column if not exists guide_file_size integer;
+alter table payment_requests add column if not exists payment_receipt_file_path text;
+alter table payment_requests add column if not exists payment_receipt_file_name text;
+alter table payment_requests add column if not exists payment_receipt_file_type text;
+alter table payment_requests add column if not exists payment_receipt_file_size integer;
 
 create table if not exists audit_logs (
   id text primary key,

@@ -62,9 +62,9 @@ DATABASE_URL=postgresql://usuario:senha@host:5432/postgres
 
 O app cria e atualiza automaticamente as tabelas relacionais necessarias.
 
-### 3. Configurar anexos de guia
+### 3. Configurar anexos de guia e comprovante
 
-Para permitir que a contadora envie PDF ou imagem, adicione no Render:
+Para permitir que a contadora envie a guia e o gerente envie o comprovante em PDF ou imagem, adicione no Render:
 
 ```env
 SUPABASE_URL=https://seu-projeto.supabase.co
